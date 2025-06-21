@@ -1,0 +1,16 @@
+frontend/
+├── src/
+│   ├── pages/
+│   │   ├── Register.jsx
+│   │   ├── Login.jsx
+│   │   ├── OTPVerify.jsx
+│   │   └── Welcome.jsx
+│   ├── components/
+│   │   └── FormInput.jsx
+│   ├── api/
+│   │   └── api.js
+│   ├── App.js
+│   ├── index.js
+│   └── App.css
+├── package.json
+├── .env

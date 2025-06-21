@@ -1,0 +1,19 @@
+backend/
+├── controllers/
+│   └── authController.js
+├── models/
+│   └── User.js
+├── routes/
+│   └── authRoutes.js
+├── utils/
+│   ├── sendEmailOTP.js
+│   └── sendMobileOTP.js
+├── middleware/
+│   └── authMiddleware.js
+├── config/
+│   ├── db.js
+│   ├── emailConfig.js
+│   └── twilioConfig.js
+├── .env
+├── server.js
+├── package.json
