@@ -1,11 +1,21 @@
 const express = require('express');
-const { registerUser, loginUser, verifyOTP, welcomeUser } = require('../controllers/authController');
-const protect = require('../middleware/authMiddleware');
+const {
+  registerUser,
+  sendMobileOtp,
+  verifyMobileOtp,
+  sendAadhaarOtp,
+  verifyAadhaarOtp,
+  loginUser
+} = require('../controllers/authController');
+
 const router = express.Router();
 
-router.post('/register', registerUser);
+// Only use what is defined in authController.js
 router.post('/login', loginUser);
-router.post('/verify-otp', verifyOTP);
-router.get('/welcome', protect, welcomeUser);
+router.post('/registerUser', registerUser);
+router.post('/sendMobileOtp', sendMobileOtp);
+router.post('/verifyMobileOtp', verifyMobileOtp);
+router.post('/sendAadhaarOtp', sendAadhaarOtp);
+router.post('/verifyAadhaarOtp', verifyAadhaarOtp);
 
 module.exports = router;

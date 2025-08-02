@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API = axios.create({ baseURL: 'http://localhost:5000/api' }); // Backend URL
+const API = axios.create({ baseURL: 'http://localhost:5000/api/auth' }); // Backend URL
 
 // Add token in headers if available
 API.interceptors.request.use((req) => {
