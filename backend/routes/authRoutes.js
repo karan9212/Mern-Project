@@ -11,7 +11,7 @@ const {
 const router = express.Router();
 
 // Only use what is defined in authController.js
-router.post('/login', loginUser);
+router.post('/loginUser', loginUser);
 router.post('/registerUser', registerUser);
 router.post('/sendMobileOtp', sendMobileOtp);
 router.post('/verifyMobileOtp', verifyMobileOtp);

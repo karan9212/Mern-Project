@@ -181,6 +181,14 @@ function Register() {
           </>
         )}
 
+        {/* Navigate to Register */}
+        <p style={{ marginTop: '20px' }}>
+          Have an account?{' '}
+          <button type="button" onClick={() => navigate('/')}>
+            Go to Login
+          </button>
+        </p>
+
         {/* Final Submit */}
         {aadhaarVerified && (
           <button type="submit">Complete Registration</button>

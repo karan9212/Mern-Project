@@ -8,10 +8,10 @@ const aadhaarData = [
     { name: "Ravi Kumar", age: 32, address: "123 MG Road, Delhi", aadhaar: "123456789012", mobile: "9876543210" },
     { name: "Sunita Mehta", age: 28, address: "45 Gandhi Marg, Mumbai", aadhaar: "234567890123", mobile: "9123456780" },
     { name: "Anil Singh", age: 41, address: "78 Tagore Lane, Kolkata", aadhaar: "345678901234", mobile: "9988776655" },
-    { name: "Meena Joshi", age: 35, address: "65 Nehru Street, Jaipur", aadhaar: "456789012345", mobile: "7982273061" },
+    { name: "Karan Sinha", age: 26, address: "47 Rana Pratap Bagh, Delhi", aadhaar: "456789012345", mobile: "7982273061" },
     { name: "Vikram Chauhan", age: 38, address: "11 Sector 21, Chandigarh", aadhaar: "567890123456", mobile: "8765432109" },
     { name: "Priya Nair", age: 26, address: "9 Beach Road, Chennai", aadhaar: "678901234567", mobile: "9823456781" },
-    { name: "Suresh Patil", age: 48, address: "24 Main Road, Pune", aadhaar: "789012345678", mobile: "9988123456" },
+    { name: "Anshika Sharma", age: 22, address: "24 Main Road, Meerut", aadhaar: "789012345678", mobile: "8218267196" },
     { name: "Anita Deshmukh", age: 30, address: "32 Park Avenue, Nashik", aadhaar: "890123456789", mobile: "9012345678" },
     { name: "Amit Shah", age: 27, address: "102 Lotus Lane, Ahmedabad", aadhaar: "901234567890", mobile: "9667788990" },
     { name: "Radhika Menon", age: 34, address: "7 Lake View, Kochi", aadhaar: "012345678901", mobile: "9301234567" }
@@ -23,6 +23,7 @@ const otpStore = {}; // Temporary store for OTPs (in-memory)
 // Send Mobile OTP
 // ----------------------------
 const sendMobileOtp = async (req, res) => {
+    debugger;
     const { mobile } = req.body;
 
     try {
@@ -93,7 +94,19 @@ const registerUser = async (req, res) => {
         const existing = await User.findOne({ mobile });
         if (existing) return res.status(400).json({ message: 'User already exists' });
 
-        const user = new User({ name, mobile, aadhaar, isVerified: true });
+        const userCount = await User.countDocuments();
+        const userNumber = userCount + 1;
+        const userType = 'NP'; // Default
+        const userId = `IRUSR${userType}${userNumber}`;
+
+        const user = new User({
+            name,
+            mobile,
+            aadhaar,
+            userId,
+            userType,
+            isVerified: true
+        });
         await user.save();
 
         res.status(201).json({ message: 'User registered successfully' });
@@ -110,14 +123,17 @@ const loginUser = async (req, res) => {
     const { mobile } = req.body;
 
     try {
-        // Check if user already exists
-        const existing = await User.findOne({ mobile });
-        if (!existing) return res.status(400).json({ message: 'User does not exists' });
+        const user = await User.findOne({ mobile });
+        if (!user) return res.status(400).json({ message: 'User does not exist' });
 
-        const user = new User({ mobile, isVerified: true });
-        await user.save();
-
-        res.status(201).json({ message: 'User Logged in successfully' });
+        // You could generate a JWT here too
+        res.status(200).json({
+            message: 'User logged in successfully',
+            user: {
+                name: user.name,
+                userId: user.userId
+            }
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });

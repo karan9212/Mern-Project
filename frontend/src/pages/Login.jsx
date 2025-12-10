@@ -41,19 +41,27 @@ function Login() {
         }
     };
 
+    // ------------------- Login --------------------
     const handleLogin = async (e) => {
+        debugger;
         e.preventDefault();
-        if (mobileVerified === false) {
+        if (!mobileVerified) {
             return alert('Please verify mobile first.');
         }
 
         try {
-            await API.post('/login', {
-                mobile: formData.mobile
-            });
+            const res = await API.post('/loginUser', { mobile: formData.mobile });
+
+            const expiryTime = new Date().getTime() + 60 * 60 * 1000; // 1 hour from now
+
+            // Save name and userId in localStorage
+            const { name, userId } = res.data.user;
+            localStorage.setItem('name', name);
+            localStorage.setItem('userId', userId);
+            localStorage.setItem('sessionExpiry', expiryTime);
 
             alert('Login successful!');
-            navigate('/Welcome');
+            navigate('/welcome');
         } catch (err) {
             alert(err.response?.data?.message || 'Login failed');
         }
@@ -102,6 +110,14 @@ function Login() {
                 {mobileVerified && (
                     <button type="submit">Login</button>
                 )}
+
+                {/* Navigate to Register */}
+                <p style={{ marginTop: '20px' }}>
+                    Don't have an account?{' '}
+                    <button type="button" onClick={() => navigate('/register')}>
+                        Go to Registration
+                    </button>
+                </p>
             </form>
         </div>
     );
