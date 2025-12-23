@@ -61,7 +61,7 @@ function Login() {
             localStorage.setItem('sessionExpiry', expiryTime);
 
             alert('Login successful!');
-            navigate('/welcome');
+            navigate('/dashboard');
         } catch (err) {
             alert(err.response?.data?.message || 'Login failed');
         }

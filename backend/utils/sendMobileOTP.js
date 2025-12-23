@@ -1,14 +1,10 @@
 const client = require('../config/twilioConfig');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const sendMobileOTP = async (mobile, otp) => {
   try {
-    debugger;
-    const { TWILIO_SID, TWILIO_AUTH_TOKEN } = process.env;
-
-    if (!TWILIO_SID || !TWILIO_AUTH_TOKEN) {
-      throw new Error('❌ Missing Twilio credentials (TWILIO_SID, TWILIO_AUTH_TOKEN) in .env');
-    }
-
     await client.messages.create({
       body: `Your OTP code is ${otp}`,
       from: process.env.TWILIO_PHONE_NUMBER,  // must be verified number
