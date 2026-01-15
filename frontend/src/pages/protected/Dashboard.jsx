@@ -12,6 +12,11 @@ import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import Divider from '@mui/material/Divider';
 import CardContent from '@mui/material/CardContent';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
 
 const Item = styled(Paper)(({ theme }) => ({
   backgroundColor: '#fff',
@@ -59,52 +64,57 @@ function Dashboard() {
           Your browser does not support the video tag.
         </video>
         <Container fixed>
-          <Card variant="outlined" className='dashboard-panel' style={{backgroundColor: 'transparent'}}>
-            <CardContent sx={{padding: '0px'}}>
+          <Card variant="outlined" className='dashboard-panel' sx={{ backgroundColor: 'transparent' }}>
+            <CardContent sx={{ padding: '0px', height: '100%' }}>
               <Topnav />
-              <Box>
-                <Stack>
-                  <Item className='glassmo'>
-                    <Grid container>
-                      <Grid sx={{ xs: 6, md: 4 }}></Grid>
-                      <Grid sx={{ xs: 6, md: 6 }}>
-                        <Box>
-                          <Stack>
-                            <Item>
-                              <Grid container>
-                                <Grid></Grid>
-                                <Grid></Grid>
-                              </Grid>
-                            </Item>
-                            <Divider />
-                            <Item>
-                              <Grid container>
-                                <Grid></Grid>
-                                <Grid></Grid>
-                              </Grid>
-                            </Item>
-                          </Stack>
+              <Box sx={{ height: '100%' }}>
+                <Stack sx={{ height: '100%' }}>
+                  <Item className='glassmo' sx={{ height: '100%' }}>
+                    <Grid container sx={{ height: '100%' }}>
+                      <Grid size={12} sx={{ height: '100%' }}>
+                        <Box sx={{ height: '100%' }}>
+                          <Grid container sx={{ height: '100%' }}>
+                            <Grid size={3} sx={{ height: '100%' }}>
+                              <Card variant="outlined" className='dashboard-content-panel left'>
+                                <List className='glassmo sideMenu'
+                                  sx={{
+                                    width: '100%',
+                                    maxWidth: 360,
+                                    bgcolor: 'background.paper',
+                                    position: 'relative',
+                                    overflow: 'auto',
+                                    maxHeight: '100%',
+                                    '& ul': { padding: 0 },
+                                  }}
+                                  subheader={<li />}
+                                >
+                                  {[0, 1, 2, 3, 4].map((sectionId) => (
+                                    <li key={`section-${sectionId}`} className=''>
+                                      <ul>
+                                        <ListSubheader className='glassmo' sx={{textAlign: 'left'}}>{`I'm sticky ${sectionId}`}</ListSubheader>
+                                        {[0, 1, 2].map((item) => (
+                                          <ListItemButton>
+                                            <ListItem key={`item-${sectionId}-${item}`}>
+                                              <ListItemText primary={`Item ${item}`} />
+                                            </ListItem>
+                                          </ListItemButton>
+                                        ))}
+                                      </ul>
+                                    </li>
+                                  ))}
+                                </List>
+                              </Card>
+                            </Grid>
+                            <Grid size={9} sx={{ height: '100%' }}>
+                              <Card variant="outlined" className='dashboard-content-panel right'></Card>
+                            </Grid>
+                          </Grid>
                         </Box>
                       </Grid>
                     </Grid>
                   </Item>
                 </Stack>
               </Box>
-
-
-              
-              <Typography gutterBottom sx={{ color: 'text.secondary', fontSize: 14 }}>
-                Word of the Day
-              </Typography>
-              <Typography variant="h5" component="div">
-                be nev o lent
-              </Typography>
-              <Typography sx={{ color: 'text.secondary', mb: 1.5 }}>adjective</Typography>
-              <Typography variant="body2">
-                well meaning and kindly.
-                <br />
-                {'"a benevolent smile"'}
-              </Typography>
             </CardContent>
           </Card>
         </Container>

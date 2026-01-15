@@ -83,6 +83,28 @@ body {
   border-radius: 14px !important;
 }
 
+.dashboard-content-panel {
+  width: 100% !important;
+  height: 90% !important;
+  border-radius: 14px !important;
+  background-color: transparent !important;
+}
+
+.sideMenu::-webkit-scrollbar {
+  width: 8px !important;
+  height: 100% !important;
+}
+
+.sideMenu::-webkit-scrollbar-track {
+  background: var(--theme-bg-color) !important;
+  border-radius: 10px !important;
+}
+
+.sideMenu::-webkit-scrollbar-thumb {
+  background-color: #475569;
+  border-radius: 10px;
+  border: 2px solid #020617;
+}
 
 
 
