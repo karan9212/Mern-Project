@@ -131,7 +131,63 @@ const loginUser = async (req, res) => {
             message: 'User logged in successfully',
             user: {
                 name: user.name,
-                userId: user.userId
+                userId: user.userId,
+                profileImage: user.profileImage || ''
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// ----------------------------
+// Get User Profile
+// ----------------------------
+const getUserProfile = async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        const user = await User.findOne({ userId });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        res.status(200).json({
+            user: {
+                name: user.name,
+                userId: user.userId,
+                profileImage: user.profileImage || ''
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// ----------------------------
+// Update Profile Image
+// ----------------------------
+const updateProfileImage = async (req, res) => {
+    const { userId, profileImage } = req.body;
+
+    if (!userId || !profileImage) {
+        return res.status(400).json({ message: 'userId and profileImage are required' });
+    }
+
+    try {
+        const user = await User.findOneAndUpdate(
+            { userId },
+            { $set: { profileImage } },
+            { new: true }
+        );
+
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        res.status(200).json({
+            message: 'Profile image updated successfully',
+            user: {
+                userId: user.userId,
+                profileImage: user.profileImage || ''
             }
         });
     } catch (error) {
@@ -146,5 +202,7 @@ module.exports = {
     sendAadhaarOtp,
     verifyAadhaarOtp,
     registerUser,
-    loginUser
+    loginUser,
+    getUserProfile,
+    updateProfileImage
 };

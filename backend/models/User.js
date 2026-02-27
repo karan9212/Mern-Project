@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
   userId: { type: String, unique: true },
   userType: { type: String, enum: ['NP', 'PR'], default: 'NP' },
   isVerified: { type: Boolean, default: false },
+  profileImage: { type: String, default: '' },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema, 'users');

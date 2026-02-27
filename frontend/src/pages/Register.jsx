@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Container,
+  Snackbar,
+  Stack,
+  TextField,
+  Typography
+} from '@mui/material';
 import API from '../api/api';
 
 function Register() {
@@ -16,6 +28,22 @@ function Register() {
   const [mobileVerified, setMobileVerified] = useState(false);
   const [aadhaarOtpSent, setAadhaarOtpSent] = useState(false);
   const [aadhaarVerified, setAadhaarVerified] = useState(false);
+  const [toast, setToast] = useState({
+    open: false,
+    message: '',
+    severity: 'warning'
+  });
+
+  const mobileRegex = /^\d{10}$/;
+
+  const showToast = (message, severity = 'warning') => {
+    setToast({ open: true, message, severity });
+  };
+
+  const closeToast = (_, reason) => {
+    if (reason === 'clickaway') return;
+    setToast((prev) => ({ ...prev, open: false }));
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -74,8 +102,24 @@ function Register() {
   const handleSubmit = async (e) => {
     debugger;
     e.preventDefault();
+
+    const name = formData.name.trim();
+    const mobile = formData.mobile.trim();
+    const aadhaar = formData.aadhaar.trim();
+
+    if (!name || !mobile || !aadhaar) {
+      showToast('Please fill all required fields.');
+      return;
+    }
+
+    if (!mobileRegex.test(mobile)) {
+      showToast('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
     if (!mobileVerified || !aadhaarVerified) {
-      return alert('Please verify both mobile and Aadhaar first.');
+      showToast('Please verify both mobile and Aadhaar first.');
+      return;
     }
 
     try {
@@ -93,108 +137,142 @@ function Register() {
   };
 
   return (
-    <div className="container">
-      <h2>Register</h2>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        background: (theme) =>
+          theme.palette.mode === 'dark'
+            ? 'linear-gradient(140deg, #0d1220 0%, #151d34 100%)'
+            : 'linear-gradient(140deg, #f6f9fc 0%, #e3ecf8 100%)',
+        py: 4
+      }}
+    >
+      <Container maxWidth="sm">
+        <Card elevation={8} sx={{ borderRadius: 4 }}>
+          <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+            <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
+              Register
+            </Typography>
 
-      <form onSubmit={handleSubmit}>
-        {/* Name */}
-        <input
-          name="name"
-          placeholder="Name"
-          onChange={handleChange}
-          value={formData.name}
-          required
-        />
+            <Box component="form" onSubmit={handleSubmit}>
+              <Stack spacing={2.5}>
+                <TextField
+                  name="name"
+                  label="Name"
+                  onChange={handleChange}
+                  value={formData.name}
+                  required
+                  fullWidth
+                />
 
-        {/* Mobile Number */}
-        <input
-          name="mobile"
-          placeholder="Mobile Number"
-          onChange={handleChange}
-          value={formData.mobile}
-          required
-          disabled={mobileVerified}
-        />
+                <TextField
+                  name="mobile"
+                  label="Mobile Number"
+                  onChange={handleChange}
+                  value={formData.mobile}
+                  required
+                  disabled={mobileVerified}
+                  fullWidth
+                />
 
-        {/* Send Mobile OTP */}
-        {!mobileOtpSent && !mobileVerified && (
-          <button type="button" onClick={sendMobileOtp}>
-            Send OTP
-          </button>
-        )}
+                {!mobileOtpSent && !mobileVerified && (
+                  <Button type="button" variant="contained" onClick={sendMobileOtp}>
+                    Send OTP
+                  </Button>
+                )}
 
-        {/* Mobile OTP input + verify */}
-        {mobileOtpSent && !mobileVerified && (
-          <>
-            <input
-              name="mobileOtp"
-              placeholder="Enter Mobile OTP"
-              onChange={handleChange}
-              value={formData.mobileOtp}
-              required
-            />
-            <button type="button" onClick={verifyMobileOtp}>
-              Verify Mobile OTP
-            </button>
-            <button type="button" onClick={sendMobileOtp}>
-              Resend OTP
-            </button>
-          </>
-        )}
+                {mobileOtpSent && !mobileVerified && (
+                  <>
+                    <TextField
+                      name="mobileOtp"
+                      label="Enter Mobile OTP"
+                      onChange={handleChange}
+                      value={formData.mobileOtp}
+                      required
+                      fullWidth
+                    />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button type="button" variant="contained" onClick={verifyMobileOtp} fullWidth>
+                        Verify Mobile OTP
+                      </Button>
+                      <Button type="button" variant="outlined" onClick={sendMobileOtp} fullWidth>
+                        Resend OTP
+                      </Button>
+                    </Stack>
+                  </>
+                )}
 
-        {/* Aadhaar input + send OTP */}
-        {mobileVerified && (
-          <>
-            <input
-              name="aadhaar"
-              placeholder="Aadhaar Number"
-              onChange={handleChange}
-              value={formData.aadhaar}
-              required
-              disabled={aadhaarVerified}
-            />
+                {mobileVerified && (
+                  <>
+                    <TextField
+                      name="aadhaar"
+                      label="Aadhaar Number"
+                      onChange={handleChange}
+                      value={formData.aadhaar}
+                      required
+                      disabled={aadhaarVerified}
+                      fullWidth
+                    />
 
-            {!aadhaarOtpSent && !aadhaarVerified && (
-              <button type="button" onClick={sendAadhaarOtp}>
-                Send Aadhaar OTP
-              </button>
-            )}
-          </>
-        )}
+                    {!aadhaarOtpSent && !aadhaarVerified && (
+                      <Button type="button" variant="contained" onClick={sendAadhaarOtp}>
+                        Send Aadhaar OTP
+                      </Button>
+                    )}
+                  </>
+                )}
 
-        {/* Aadhaar OTP + verify */}
-        {aadhaarOtpSent && !aadhaarVerified && (
-          <>
-            <input
-              name="aadhaarOtp"
-              placeholder="Enter Aadhaar OTP"
-              onChange={handleChange}
-              value={formData.aadhaarOtp}
-              required
-            />
-            <button type="button" onClick={verifyAadhaarOtp}>
-              Verify Aadhaar OTP
-            </button>
-            <button type="button" onClick={sendAadhaarOtp}>
-              Resend OTP
-            </button>
-          </>
-        )}
+                {aadhaarOtpSent && !aadhaarVerified && (
+                  <>
+                    <TextField
+                      name="aadhaarOtp"
+                      label="Enter Aadhaar OTP"
+                      onChange={handleChange}
+                      value={formData.aadhaarOtp}
+                      required
+                      fullWidth
+                    />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button type="button" variant="contained" onClick={verifyAadhaarOtp} fullWidth>
+                        Verify Aadhaar OTP
+                      </Button>
+                      <Button type="button" variant="outlined" onClick={sendAadhaarOtp} fullWidth>
+                        Resend OTP
+                      </Button>
+                    </Stack>
+                  </>
+                )}
 
-        {/* Navigate to Register */}
-        <p style={{ marginTop: '20px' }}>
-          Have an account?{' '}
-          <button type="button" onClick={() => navigate('/')}>
-            Go to Login
-          </button>
-        </p>
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Have an account?{' '}
+                  <Button type="button" variant="text" onClick={() => navigate('/')} sx={{ p: 0, minWidth: 0 }}>
+                    Go to Login
+                  </Button>
+                </Typography>
 
-        {/* Final Submit */}
-        {aadhaarVerified && (
-          <button type="submit">Complete Registration</button>
-        )}
-      </form>
-    </div>
+                {aadhaarVerified && (
+                  <Button type="submit" variant="contained" size="large">
+                    Complete Registration
+                  </Button>
+                )}
+              </Stack>
+            </Box>
+          </CardContent>
+        </Card>
+      </Container>
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={3000}
+        onClose={closeToast}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
+          {toast.message}
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
 
