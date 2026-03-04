@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -17,12 +17,16 @@ import {
   Divider,
   Drawer,
   FormControlLabel,
+  FormControl,
   Grid,
   IconButton,
+  InputLabel,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  MenuItem,
+  Select,
   Snackbar,
   Stack,
   Switch,
@@ -36,9 +40,11 @@ import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import TableChartRoundedIcon from '@mui/icons-material/TableChartRounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import MenuOpenRoundedIcon from '@mui/icons-material/MenuOpenRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import { useThemeMode } from '../../context/ThemeModeContext';
@@ -48,25 +54,30 @@ const drawerWidth = 280;
 const collapsedDrawerWidth = 84;
 
 const navItems = [
-  { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon /> },
-  { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon /> },
-  { key: 'team', label: 'Team', icon: <GroupsRoundedIcon /> },
-  { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon /> },
-  { key: 'reports', label: 'Reports', icon: <InsightsRoundedIcon /> },
-  { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon /> }
+  { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
+  { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/profile' },
+  { key: 'team', label: 'Team', icon: <GroupsRoundedIcon />, route: '/team' },
+  { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/tasks' },
+  { key: 'reports', label: 'Reports', icon: <InsightsRoundedIcon />, route: '/reports' },
+  { key: 'allUsers', label: 'All User Data', icon: <TableChartRoundedIcon />, route: '/all-users' },
+  { key: 'allEmployees', label: 'All Employee Data', icon: <GroupsRoundedIcon />, route: '/all-employees' },
+  { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/settings' }
 ];
 
-function Dashboard() {
+function Dashboard({ initialSection = 'overview' }) {
   const navigate = useNavigate();
   const { mode, toggleColorMode } = useThemeMode();
   const name = localStorage.getItem('name') || 'User';
   const userId = localStorage.getItem('userId') || 'N/A';
+  const loginAs = localStorage.getItem('loginAs') || 'user';
   const sessionExpiry = Number(localStorage.getItem('sessionExpiry'));
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
-  const [activeSection, setActiveSection] = useState('overview');
+  const [activeSection, setActiveSection] = useState(initialSection);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [profileImage, setProfileImage] = useState(localStorage.getItem('profileImage') || '');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -81,6 +92,29 @@ function Dashboard() {
     { id: 2, title: 'Review pending attendance alerts', done: true },
     { id: 3, title: 'Publish weekly HR update', done: false }
   ]);
+  const [employees, setEmployees] = useState([]);
+  const [isEmployeesLoading, setIsEmployeesLoading] = useState(false);
+  const [isEmployeeSaving, setIsEmployeeSaving] = useState(false);
+  const [editingEmployeeId, setEditingEmployeeId] = useState('');
+  const [employeeForm, setEmployeeForm] = useState({
+    name: '',
+    gender: 'other',
+    dateOfBirth: '',
+    employeeType: ['team'],
+    recruitedVia: 'self',
+    referralByName: '',
+    referralByEmployeeId: '',
+    experience: '',
+    position: '',
+    phoneNo: '',
+    address: '',
+    aadhaarNumber: '',
+    educationText: '',
+    department: '',
+    status: 'Not Active',
+    dateOfJoining: '',
+    dateOfExit: ''
+  });
 
   const sessionMinutesLeft = useMemo(() => {
     if (!sessionExpiry || Number.isNaN(sessionExpiry)) return 0;
@@ -108,14 +142,29 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
+
+  const markUserNotActive = useCallback(async () => {
+    if (!userId || userId === 'N/A') return;
+    try {
+      await API.post('/logoutUser', { userId });
+    } catch (error) {
+      // Non-blocking: local logout should proceed regardless.
+    }
+  }, [userId]);
+
+  useEffect(() => {
     if (!name || !sessionExpiry || now > sessionExpiry) {
+      markUserNotActive();
       localStorage.removeItem('name');
       localStorage.removeItem('userId');
       localStorage.removeItem('sessionExpiry');
       localStorage.removeItem('profileImage');
+      localStorage.removeItem('loginAs');
       navigate('/');
     }
-  }, [name, sessionExpiry, now, navigate]);
+  }, [name, sessionExpiry, now, navigate, markUserNotActive]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -133,33 +182,210 @@ function Dashboard() {
     fetchProfile();
   }, [userId]);
 
-  const showToast = (message, severity = 'success') => {
+  const showToast = useCallback((message, severity = 'success') => {
     setToast({ open: true, message, severity });
-  };
+  }, []);
 
   const closeToast = (_, reason) => {
     if (reason === 'clickaway') return;
     setToast((prev) => ({ ...prev, open: false }));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await markUserNotActive();
     localStorage.removeItem('name');
     localStorage.removeItem('userId');
     localStorage.removeItem('sessionExpiry');
     localStorage.removeItem('profileImage');
+    localStorage.removeItem('loginAs');
     showToast('You have been logged out.', 'info');
     navigate('/');
   };
 
   const handleSectionChange = (sectionKey) => {
-    setActiveSection(sectionKey);
+    const selectedNav = navItems.find((item) => item.key === sectionKey);
+    const hasInPageSection = ['overview', 'profile', 'team', 'tasks', 'reports', 'settings'].includes(sectionKey);
+
+    if (hasInPageSection) {
+      setActiveSection(sectionKey);
+    }
     setMobileOpen(false);
+
+    if (selectedNav?.route) {
+      navigate(selectedNav.route);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!userId || userId === 'N/A') {
+      showToast('Unable to identify user account.', 'error');
+      return;
+    }
+
+    try {
+      setIsDeletingAccount(true);
+      await API.delete(`/deleteUser/${userId}`);
+      localStorage.removeItem('name');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('sessionExpiry');
+      localStorage.removeItem('profileImage');
+      localStorage.removeItem('loginAs');
+      navigate('/');
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to delete account.', 'error');
+    } finally {
+      setIsDeletingAccount(false);
+      setDeleteDialogOpen(false);
+    }
   };
 
   const toggleTaskStatus = (taskId) => {
     setTaskList((prev) =>
       prev.map((task) => (task.id === taskId ? { ...task, done: !task.done } : task))
     );
+  };
+
+  const fetchEmployees = useCallback(async () => {
+    try {
+      setIsEmployeesLoading(true);
+      const res = await API.get('/teams', { params: { employeeType: 'team' } });
+      const teamUsers = (res.data?.users || []).filter(
+        (user) => Array.isArray(user.employeeType) && user.employeeType.includes('team')
+      );
+      setEmployees(teamUsers);
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to fetch employees.', 'error');
+    } finally {
+      setIsEmployeesLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    if (activeSection !== 'team') return;
+    fetchEmployees();
+  }, [activeSection, fetchEmployees]);
+
+  const resetEmployeeForm = () => {
+    setEmployeeForm({
+      name: '',
+      gender: 'other',
+      dateOfBirth: '',
+      employeeType: ['team'],
+      recruitedVia: 'self',
+      referralByName: '',
+      referralByEmployeeId: '',
+      experience: '',
+      position: '',
+      phoneNo: '',
+      address: '',
+      aadhaarNumber: '',
+      educationText: '',
+      department: '',
+      status: 'Not Active',
+      dateOfJoining: '',
+      dateOfExit: ''
+    });
+    setEditingEmployeeId('');
+  };
+
+  const handleEmployeeInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    const normalizedValue =
+      name === 'employeeType' ? (Array.isArray(value) ? value : String(value).split(',')) : value;
+    setEmployeeForm((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : normalizedValue,
+      ...(name === 'status' && normalizedValue === 'Active' ? { dateOfExit: '' } : {})
+    }));
+  };
+
+  const handleEditEmployee = (employee) => {
+    setEditingEmployeeId(employee.employeeId);
+    setEmployeeForm({
+      name: employee.name || '',
+      gender: employee.gender || 'other',
+      dateOfBirth: employee.dateOfBirth ? new Date(employee.dateOfBirth).toISOString().split('T')[0] : '',
+      employeeType: Array.isArray(employee.employeeType) && employee.employeeType.length > 0 ? employee.employeeType : ['team'],
+      recruitedVia: employee.recruitedVia || 'self',
+      referralByName: employee.referralBy?.name || '',
+      referralByEmployeeId: employee.referralBy?.employeeId || '',
+      experience: employee.experience || '',
+      position: employee.position || '',
+      phoneNo: employee.phoneNo || '',
+      address: employee.address || '',
+      aadhaarNumber: employee.aadhaarNumber || '',
+      educationText: Array.isArray(employee.education) && employee.education.length > 0 ? JSON.stringify(employee.education) : '',
+      department: employee.department || '',
+      status: employee.status || 'Not Active',
+      dateOfJoining: employee.dateOfJoining ? new Date(employee.dateOfJoining).toISOString().split('T')[0] : '',
+      dateOfExit: employee.dateOfExit ? new Date(employee.dateOfExit).toISOString().split('T')[0] : ''
+    });
+  };
+
+  const handleSaveEmployee = async (e) => {
+    e.preventDefault();
+
+    let education = [];
+    if (employeeForm.educationText.trim()) {
+      try {
+        const parsed = JSON.parse(employeeForm.educationText);
+        education = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        showToast('Education must be valid JSON array.', 'warning');
+        return;
+      }
+    }
+
+    const payload = {
+      ...employeeForm,
+      name: employeeForm.name.trim(),
+      position: employeeForm.position,
+      phoneNo: employeeForm.phoneNo.trim(),
+      dateOfBirth: employeeForm.dateOfBirth,
+      address: employeeForm.address.trim(),
+      aadhaarNumber: employeeForm.aadhaarNumber.trim(),
+      employeeType: employeeForm.employeeType,
+      department: employeeForm.department,
+      education,
+      referralBy:
+        employeeForm.recruitedVia === 'referral'
+          ? { name: employeeForm.referralByName.trim(), employeeId: employeeForm.referralByEmployeeId.trim() }
+          : { name: '', employeeId: '' },
+      dateOfJoining: employeeForm.dateOfJoining,
+      dateOfExit: employeeForm.status === 'Active' ? null : (employeeForm.dateOfExit || null)
+    };
+
+    if (!payload.name || !payload.position || !payload.phoneNo || !payload.address || !payload.aadhaarNumber || !payload.department || !payload.dateOfJoining) {
+      showToast('Please fill all required employee fields.', 'warning');
+      return;
+    }
+
+    if (!/^\d{10}$/.test(payload.phoneNo)) {
+      showToast('Phone number must be 10 digits.', 'warning');
+      return;
+    }
+
+    if (!/^\d{12}$/.test(payload.aadhaarNumber)) {
+      showToast('Aadhaar number must be 12 digits.', 'warning');
+      return;
+    }
+
+    try {
+      setIsEmployeeSaving(true);
+      if (editingEmployeeId) {
+        await API.put(`/teams/${editingEmployeeId}`, payload);
+        showToast('Employee updated successfully.', 'success');
+      } else {
+        await API.post('/teams', payload);
+        showToast('Employee created successfully.', 'success');
+      }
+      resetEmployeeForm();
+      fetchEmployees();
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to save employee.', 'error');
+    } finally {
+      setIsEmployeeSaving(false);
+    }
   };
 
   const handleChooseProfileImage = () => {
@@ -409,28 +635,211 @@ function Dashboard() {
   );
 
   const renderTeam = () => (
-    <Card sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Typography variant="h6" fontWeight={700} gutterBottom>Team Snapshot</Typography>
-        <Grid container spacing={2}>
-          {[
-            { name: 'Anshika Sharma', role: 'HR Executive', status: 'Active' },
-            { name: 'Karan Sinha', role: 'Recruiter', status: 'In Meeting' },
-            { name: 'Ravi Kumar', role: 'HRBP', status: 'On Leave' }
-          ].map((member) => (
-            <Grid key={member.name} size={{ xs: 12, md: 4 }}>
-              <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                <CardContent>
-                  <Typography fontWeight={700}>{member.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">{member.role}</Typography>
-                  <Chip size="small" sx={{ mt: 1.2 }} label={member.status} />
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </CardContent>
-    </Card>
+    <Grid container spacing={2.5}>
+      <Grid size={{ xs: 12, lg: 5 }}>
+        <Card sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              {editingEmployeeId ? 'Update Employee' : 'Create Employee'}
+            </Typography>
+            <Box component="form" onSubmit={handleSaveEmployee}>
+              <Stack spacing={2}>
+                <TextField label="Name" name="name" value={employeeForm.name} onChange={handleEmployeeInputChange} required fullWidth />
+                <FormControl fullWidth required>
+                  <InputLabel id="position-label">Position</InputLabel>
+                  <Select
+                    labelId="position-label"
+                    name="position"
+                    value={employeeForm.position}
+                    label="Position"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="Manager">Manager</MenuItem>
+                    <MenuItem value="Team Lead">Team Lead</MenuItem>
+                    <MenuItem value="HR Executive">HR Executive</MenuItem>
+                    <MenuItem value="Recruiter">Recruiter</MenuItem>
+                    <MenuItem value="Staff">Staff</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField label="Phone Number" name="phoneNo" value={employeeForm.phoneNo} onChange={handleEmployeeInputChange} required fullWidth />
+                <TextField label="Aadhaar Number" name="aadhaarNumber" value={employeeForm.aadhaarNumber} onChange={handleEmployeeInputChange} required fullWidth />
+                <FormControl fullWidth>
+                  <InputLabel id="team-user-type-label">Employee Type</InputLabel>
+                  <Select
+                    labelId="team-user-type-label"
+                    name="employeeType"
+                    multiple
+                    value={employeeForm.employeeType}
+                    label="Employee Type"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="team">team</MenuItem>
+                    <MenuItem value="subAdmin">subAdmin</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel id="gender-label">Gender</InputLabel>
+                  <Select
+                    labelId="gender-label"
+                    name="gender"
+                    value={employeeForm.gender}
+                    label="Gender"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="male">Male</MenuItem>
+                    <MenuItem value="female">Female</MenuItem>
+                    <MenuItem value="other">Other</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Date of Birth"
+                  name="dateOfBirth"
+                  type="date"
+                  value={employeeForm.dateOfBirth}
+                  onChange={handleEmployeeInputChange}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField label="Address" name="address" value={employeeForm.address} onChange={handleEmployeeInputChange} required fullWidth multiline minRows={2} />
+                <FormControl fullWidth required>
+                  <InputLabel id="department-label">Department</InputLabel>
+                  <Select
+                    labelId="department-label"
+                    name="department"
+                    value={employeeForm.department}
+                    label="Department"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="HR">HR</MenuItem>
+                    <MenuItem value="Engineering">Engineering</MenuItem>
+                    <MenuItem value="Sales">Sales</MenuItem>
+                    <MenuItem value="Operations">Operations</MenuItem>
+                    <MenuItem value="Finance">Finance</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField label="Experience (yy/mm)" name="experience" value={employeeForm.experience} onChange={handleEmployeeInputChange} fullWidth />
+                <TextField
+                  label="Education (JSON Array)"
+                  name="educationText"
+                  value={employeeForm.educationText}
+                  onChange={handleEmployeeInputChange}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                />
+                <FormControl fullWidth>
+                  <InputLabel id="recruited-via-label">Recruited Via</InputLabel>
+                  <Select
+                    labelId="recruited-via-label"
+                    name="recruitedVia"
+                    value={employeeForm.recruitedVia}
+                    label="Recruited Via"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="referral">Referral</MenuItem>
+                    <MenuItem value="self">Self</MenuItem>
+                    <MenuItem value="hiring campaign">Hiring Campaign</MenuItem>
+                  </Select>
+                </FormControl>
+                {employeeForm.recruitedVia === 'referral' && (
+                  <>
+                    <TextField label="Referral By Name" name="referralByName" value={employeeForm.referralByName} onChange={handleEmployeeInputChange} fullWidth />
+                    <TextField label="Referral By Employee ID" name="referralByEmployeeId" value={employeeForm.referralByEmployeeId} onChange={handleEmployeeInputChange} fullWidth />
+                  </>
+                )}
+                <FormControl fullWidth>
+                  <InputLabel id="working-status-label">Status</InputLabel>
+                  <Select
+                    labelId="working-status-label"
+                    name="status"
+                    value={employeeForm.status}
+                    label="Status"
+                    onChange={handleEmployeeInputChange}
+                  >
+                    <MenuItem value="Active">Active</MenuItem>
+                    <MenuItem value="Not Active">Not Active</MenuItem>
+                    <MenuItem value="Deleted">Deleted</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Date of Joining"
+                  name="dateOfJoining"
+                  type="date"
+                  value={employeeForm.dateOfJoining}
+                  onChange={handleEmployeeInputChange}
+                  InputLabelProps={{ shrink: true }}
+                  required
+                  fullWidth
+                />
+                <TextField
+                  label="Date of Exit"
+                  name="dateOfExit"
+                  type="date"
+                  value={employeeForm.dateOfExit}
+                  onChange={handleEmployeeInputChange}
+                  InputLabelProps={{ shrink: true }}
+                  disabled={employeeForm.status === 'Active'}
+                  fullWidth
+                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <Button type="submit" variant="contained" fullWidth disabled={isEmployeeSaving}>
+                    {isEmployeeSaving ? 'Saving...' : editingEmployeeId ? 'Update Employee' : 'Create Employee'}
+                  </Button>
+                  <Button type="button" variant="outlined" fullWidth onClick={resetEmployeeForm}>
+                    Reset
+                  </Button>
+                </Stack>
+              </Stack>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid size={{ xs: 12, lg: 7 }}>
+        <Card sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Existing Employees</Typography>
+            {isEmployeesLoading ? (
+              <Typography color="text.secondary">Loading employees...</Typography>
+            ) : employees.length === 0 ? (
+              <Typography color="text.secondary">No user yet.</Typography>
+            ) : (
+              <Stack spacing={1.2}>
+                {employees.map((employee) => (
+                  <Card key={employee.employeeId} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <CardContent sx={{ py: '12px !important' }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
+                        <Box>
+                          <Typography fontWeight={700}>{employee.name}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {employee.position || 'N/A'} | {employee.department || 'N/A'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Phone: {employee.phoneNo || 'N/A'} | Aadhaar: {employee.aadhaarNumber || 'N/A'}
+                          </Typography>
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            DOJ: {employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString() : 'N/A'} | Exit: {employee.dateOfExit ? new Date(employee.dateOfExit).toLocaleDateString() : 'N/A'}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            size="small"
+                            color={employee.status === 'Active' ? 'success' : employee.status === 'Deleted' ? 'error' : 'warning'}
+                            label={employee.status || 'Not Active'}
+                          />
+                          <Button variant="outlined" size="small" onClick={() => handleEditEmployee(employee)}>
+                            Edit
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+    </Grid>
   );
 
   const renderTasks = () => (
@@ -523,9 +932,6 @@ function Dashboard() {
           <CardContent>
             <Typography variant="h6" fontWeight={700} gutterBottom>Account Actions</Typography>
             <Stack spacing={1.5}>
-              <Button variant="outlined" onClick={() => navigate('/change-password')}>
-                Change Password
-              </Button>
               <Button
                 color="error"
                 variant="contained"
@@ -533,6 +939,14 @@ function Dashboard() {
                 onClick={() => setLogoutDialogOpen(true)}
               >
                 Logout
+              </Button>
+              <Button
+                color="error"
+                variant="outlined"
+                startIcon={<DeleteForeverRoundedIcon />}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                Delete Account
               </Button>
             </Stack>
           </CardContent>
@@ -550,7 +964,7 @@ function Dashboard() {
     settings: renderSettings
   };
 
-  const ActiveComponent = sectionRenderer[activeSection];
+  const ActiveComponent = sectionRenderer[activeSection] || sectionRenderer.overview;
   const activeLabel = navItems.find((item) => item.key === activeSection)?.label || 'Overview';
 
   return (
@@ -604,7 +1018,7 @@ function Dashboard() {
           <Box sx={{ flexGrow: 1 }}>
             <Typography variant="h6" fontWeight={700}>{activeLabel}</Typography>
             <Typography variant="body2" color="text.secondary">
-              Welcome back, {name}
+              Hello {loginAs === 'employee' ? 'Team' : 'User'}, {name}
             </Typography>
           </Box>
           <Button variant="outlined" color="error" onClick={() => setLogoutDialogOpen(true)}>
@@ -663,6 +1077,31 @@ function Dashboard() {
         <DialogActions>
           <Button onClick={() => setLogoutDialogOpen(false)}>Cancel</Button>
           <Button color="error" variant="contained" onClick={handleLogout}>Logout</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Account</DialogTitle>
+        <DialogContent>
+          <Typography color="error" fontWeight={700} sx={{ mb: 1 }}>
+            This action cannot be undone.
+          </Typography>
+          <Typography>
+            Are you sure you want to permanently delete your account?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={isDeletingAccount}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleDeleteAccount}
+            disabled={isDeletingAccount}
+          >
+            {isDeletingAccount ? 'Deleting...' : 'Delete'}
+          </Button>
         </DialogActions>
       </Dialog>
 

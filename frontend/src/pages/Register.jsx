@@ -19,22 +19,15 @@ function Register() {
   const [formData, setFormData] = useState({
     name: '',
     mobile: '',
-    mobileOtp: '',
-    aadhaar: '',
-    aadhaarOtp: ''
+    mobileOtp: ''
   });
-
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
   const [mobileVerified, setMobileVerified] = useState(false);
-  const [aadhaarOtpSent, setAadhaarOtpSent] = useState(false);
-  const [aadhaarVerified, setAadhaarVerified] = useState(false);
   const [toast, setToast] = useState({
     open: false,
     message: '',
     severity: 'warning'
   });
-
-  const mobileRegex = /^\d{10}$/;
 
   const showToast = (message, severity = 'warning') => {
     setToast({ open: true, message, severity });
@@ -46,93 +39,80 @@ function Register() {
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  // ------------------- Mobile OTP --------------------
+  const handleResetRegistration = () => {
+    setFormData({
+      name: '',
+      mobile: '',
+      mobileOtp: ''
+    });
+    setMobileOtpSent(false);
+    setMobileVerified(false);
+    showToast('Registration form has been reset.', 'info');
+  };
+
   const sendMobileOtp = async () => {
-    debugger;
-    try {
-      await API.post('/sendMobileOtp', { mobile: formData.mobile });
-      setMobileOtpSent(true);
-      alert('OTP sent to mobile!');
-    } catch (err) {
-      alert('Failed to send mobile OTP');
-    }
-  };
-
-  const verifyMobileOtp = async () => {
-    try {
-      await API.post('/verifyMobileOtp', {
-        mobile: formData.mobile,
-        otp: formData.mobileOtp
-      });
-      setMobileVerified(true);
-      alert('Mobile verified!');
-    } catch (err) {
-      alert('Invalid OTP for mobile');
-    }
-  };
-
-  // ------------------- Aadhaar OTP --------------------
-  const sendAadhaarOtp = async () => {
-    try {
-      const res = await API.post('/sendAadhaarOtp', { aadhaar: formData.aadhaar });
-      setAadhaarOtpSent(true);
-      alert('OTP sent to Aadhaar-linked mobile: ' + res.data.mobile);
-    } catch (err) {
-      alert('Invalid Aadhaar number');
-    }
-  };
-
-  const verifyAadhaarOtp = async () => {
-    try {
-      await API.post('/verifyAadhaarOtp', {
-        aadhaar: formData.aadhaar,
-        otp: formData.aadhaarOtp
-      });
-      setAadhaarVerified(true);
-      alert('Aadhaar verified!');
-    } catch (err) {
-      alert('Invalid OTP for Aadhaar');
-    }
-  };
-
-  // ------------------- Final Submit --------------------
-  const handleSubmit = async (e) => {
-    debugger;
-    e.preventDefault();
-
-    const name = formData.name.trim();
     const mobile = formData.mobile.trim();
-    const aadhaar = formData.aadhaar.trim();
-
-    if (!name || !mobile || !aadhaar) {
-      showToast('Please fill all required fields.');
-      return;
-    }
-
-    if (!mobileRegex.test(mobile)) {
+    if (!/^\d{10}$/.test(mobile)) {
       showToast('Please enter a valid 10-digit mobile number.');
       return;
     }
 
-    if (!mobileVerified || !aadhaarVerified) {
-      showToast('Please verify both mobile and Aadhaar first.');
+    try {
+      await API.post('/sendMobileOtp', { mobile });
+      setMobileOtpSent(true);
+      showToast('OTP sent to mobile.', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to send OTP.', 'error');
+    }
+  };
+
+  const verifyMobileOtp = async () => {
+    if (!formData.mobileOtp.trim()) {
+      showToast('Please enter OTP first.');
       return;
     }
 
     try {
-      await API.post('/registerUser', {
-        name: formData.name,
-        mobile: formData.mobile,
-        aadhaar: formData.aadhaar
+      await API.post('/verifyMobileOtp', {
+        mobile: formData.mobile.trim(),
+        otp: formData.mobileOtp.trim()
       });
-
-      alert('Registration successful!');
-      navigate('/login');
+      setMobileVerified(true);
+      showToast('Mobile verified successfully.', 'success');
     } catch (err) {
-      alert(err.response?.data?.message || 'Registration failed');
+      showToast(err.response?.data?.message || 'Invalid OTP.', 'error');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const name = formData.name.trim();
+    const mobile = formData.mobile.trim();
+
+    if (!name || !mobile) {
+      showToast('Please fill all required fields.');
+      return;
+    }
+
+    if (!/^\d{10}$/.test(mobile)) {
+      showToast('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    if (!mobileVerified) {
+      showToast('Please verify mobile first.');
+      return;
+    }
+
+    try {
+      await API.post('/registerUser', { name, mobile });
+      showToast('Registration successful.', 'success');
+      setTimeout(() => navigate('/login'), 500);
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Registration failed.', 'error');
     }
   };
 
@@ -155,6 +135,9 @@ function Register() {
             <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
               Register
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Register using Aadhaar-linked mobile number.
+            </Typography>
 
             <Box component="form" onSubmit={handleSubmit}>
               <Stack spacing={2.5}>
@@ -166,7 +149,6 @@ function Register() {
                   required
                   fullWidth
                 />
-
                 <TextField
                   name="mobile"
                   label="Mobile Number"
@@ -205,45 +187,14 @@ function Register() {
                 )}
 
                 {mobileVerified && (
-                  <>
-                    <TextField
-                      name="aadhaar"
-                      label="Aadhaar Number"
-                      onChange={handleChange}
-                      value={formData.aadhaar}
-                      required
-                      disabled={aadhaarVerified}
-                      fullWidth
-                    />
-
-                    {!aadhaarOtpSent && !aadhaarVerified && (
-                      <Button type="button" variant="contained" onClick={sendAadhaarOtp}>
-                        Send Aadhaar OTP
-                      </Button>
-                    )}
-                  </>
+                  <Button type="submit" variant="contained" size="large">
+                    Complete Registration
+                  </Button>
                 )}
 
-                {aadhaarOtpSent && !aadhaarVerified && (
-                  <>
-                    <TextField
-                      name="aadhaarOtp"
-                      label="Enter Aadhaar OTP"
-                      onChange={handleChange}
-                      value={formData.aadhaarOtp}
-                      required
-                      fullWidth
-                    />
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                      <Button type="button" variant="contained" onClick={verifyAadhaarOtp} fullWidth>
-                        Verify Aadhaar OTP
-                      </Button>
-                      <Button type="button" variant="outlined" onClick={sendAadhaarOtp} fullWidth>
-                        Resend OTP
-                      </Button>
-                    </Stack>
-                  </>
-                )}
+                <Button type="button" variant="outlined" color="warning" onClick={handleResetRegistration}>
+                  Reset Registration
+                </Button>
 
                 <Typography variant="body2" sx={{ mt: 1 }}>
                   Have an account?{' '}
@@ -251,12 +202,6 @@ function Register() {
                     Go to Login
                   </Button>
                 </Typography>
-
-                {aadhaarVerified && (
-                  <Button type="submit" variant="contained" size="large">
-                    Complete Registration
-                  </Button>
-                )}
               </Stack>
             </Box>
           </CardContent>

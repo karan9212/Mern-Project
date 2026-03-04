@@ -7,6 +7,10 @@ import {
   Card,
   CardContent,
   Container,
+  FormControl,
+  FormControlLabel,
+  Radio,
+  RadioGroup,
   Snackbar,
   Stack,
   TextField,
@@ -17,8 +21,9 @@ import API from '../api/api';
 function Login() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
+    loginAs: 'user',
     mobile: '',
-    mobileOtp: '',
+    mobileOtp: ''
   });
 
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
@@ -28,7 +33,6 @@ function Login() {
     message: '',
     severity: 'warning'
   });
-
   const mobileRegex = /^\d{10}$/;
 
   const showToast = (message, severity = 'warning') => {
@@ -41,18 +45,41 @@ function Login() {
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+
+    if (name === 'loginAs') {
+      setFormData((prev) => ({
+        ...prev,
+        loginAs: value,
+        mobileOtp: ''
+      }));
+      setMobileOtpSent(false);
+      setMobileVerified(false);
+      return;
+    }
+
+    setFormData({ ...formData, [name]: value });
+  };
+
+  const handleResetLogin = () => {
+    setFormData({
+      loginAs: 'user',
+      mobile: '',
+      mobileOtp: ''
+    });
+    setMobileOtpSent(false);
+    setMobileVerified(false);
+    showToast('Login form has been reset.', 'info');
   };
 
   // ------------------- Mobile OTP --------------------
   const sendMobileOtp = async () => {
-    debugger;
     try {
       await API.post('/sendMobileOtp', { mobile: formData.mobile });
       setMobileOtpSent(true);
-      alert('OTP sent to mobile!');
+      showToast('OTP sent to mobile.', 'success');
     } catch (err) {
-      alert('Failed to send mobile OTP');
+      showToast(err.response?.data?.message || 'Failed to send mobile OTP.', 'error');
     }
   };
 
@@ -63,15 +90,14 @@ function Login() {
         otp: formData.mobileOtp
       });
       setMobileVerified(true);
-      alert('Mobile verified!');
+      showToast('Mobile verified.', 'success');
     } catch (err) {
-      alert('Invalid OTP for mobile');
+      showToast(err.response?.data?.message || 'Invalid OTP for mobile.', 'error');
     }
   };
 
   // ------------------- Login --------------------
   const handleLogin = async (e) => {
-    debugger;
     e.preventDefault();
 
     const mobile = formData.mobile.trim();
@@ -91,7 +117,10 @@ function Login() {
     }
 
     try {
-      const res = await API.post('/loginUser', { mobile: formData.mobile });
+      const res = await API.post('/loginUser', {
+        mobile: formData.mobile,
+        loginAs: formData.loginAs
+      });
 
       const expiryTime = new Date().getTime() + 60 * 60 * 1000; // 1 hour from now
 
@@ -101,11 +130,12 @@ function Login() {
       localStorage.setItem('userId', userId);
       localStorage.setItem('profileImage', profileImage || '');
       localStorage.setItem('sessionExpiry', expiryTime);
+      localStorage.setItem('loginAs', formData.loginAs);
 
-      alert('Login successful!');
-      navigate('/dashboard');
+      showToast('Login successful.', 'success');
+      setTimeout(() => navigate('/dashboard'), 300);
     } catch (err) {
-      alert(err.response?.data?.message || 'Login failed');
+      showToast(err.response?.data?.message || 'Login failed.', 'error');
     }
   };
 
@@ -131,6 +161,15 @@ function Login() {
 
             <Box component="form" onSubmit={handleLogin}>
               <Stack spacing={2.5}>
+                <FormControl>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Login as
+                  </Typography>
+                  <RadioGroup row name="loginAs" value={formData.loginAs} onChange={handleChange}>
+                    <FormControlLabel value="user" control={<Radio />} label="User" />
+                    <FormControlLabel value="employee" control={<Radio />} label="Employee" />
+                  </RadioGroup>
+                </FormControl>
                 <TextField
                   name="mobile"
                   label="Mobile Number"
@@ -174,10 +213,20 @@ function Login() {
                   </Button>
                 )}
 
+                <Button type="button" variant="outlined" color="warning" onClick={handleResetLogin}>
+                  Reset
+                </Button>
+
                 <Typography variant="body2" sx={{ mt: 1 }}>
                   Don't have an account?{' '}
                   <Button type="button" variant="text" onClick={() => navigate('/register')} sx={{ p: 0, minWidth: 0 }}>
                     Go to Registration
+                  </Button>
+                </Typography>
+                <Typography variant="body2">
+                  Manage Aadhaar records?{' '}
+                  <Button type="button" variant="text" onClick={() => navigate('/aadhaar')} sx={{ p: 0, minWidth: 0 }}>
+                    Open Aadhaar Manager
                   </Button>
                 </Typography>
               </Stack>
