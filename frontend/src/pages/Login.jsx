@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Box,
   Button,
   Card,
@@ -11,12 +10,14 @@ import {
   FormControlLabel,
   Radio,
   RadioGroup,
-  Snackbar,
   Stack,
   TextField,
   Typography
 } from '@mui/material';
 import API from '../api/api';
+import AppToast from '../components/common/AppToast';
+import useToast from '../hooks/useToast';
+import { clearEmployeeActivity, refreshEmployeeActivity } from '../utils/employeeSession';
 
 function Login() {
   const navigate = useNavigate();
@@ -28,21 +29,8 @@ function Login() {
 
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
   const [mobileVerified, setMobileVerified] = useState(false);
-  const [toast, setToast] = useState({
-    open: false,
-    message: '',
-    severity: 'warning'
-  });
+  const { toast, showToast, closeToast } = useToast('warning');
   const mobileRegex = /^\d{10}$/;
-
-  const showToast = (message, severity = 'warning') => {
-    setToast({ open: true, message, severity });
-  };
-
-  const closeToast = (_, reason) => {
-    if (reason === 'clickaway') return;
-    setToast((prev) => ({ ...prev, open: false }));
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -122,15 +110,20 @@ function Login() {
         loginAs: formData.loginAs
       });
 
-      const expiryTime = new Date().getTime() + 60 * 60 * 1000; // 1 hour from now
-
       // Save name and userId in localStorage
       const { name, userId, profileImage } = res.data.user;
       localStorage.setItem('name', name);
       localStorage.setItem('userId', userId);
       localStorage.setItem('profileImage', profileImage || '');
-      localStorage.setItem('sessionExpiry', expiryTime);
       localStorage.setItem('loginAs', formData.loginAs);
+      if (formData.loginAs === 'user') {
+        const expiryTime = new Date().getTime() + 60 * 60 * 1000; // 1 hour from now
+        localStorage.setItem('sessionExpiry', expiryTime);
+        clearEmployeeActivity();
+      } else {
+        localStorage.removeItem('sessionExpiry');
+        refreshEmployeeActivity();
+      }
 
       showToast('Login successful.', 'success');
       setTimeout(() => navigate('/dashboard'), 300);
@@ -224,9 +217,9 @@ function Login() {
                   </Button>
                 </Typography>
                 <Typography variant="body2">
-                  Manage Aadhaar records?{' '}
-                  <Button type="button" variant="text" onClick={() => navigate('/aadhaar')} sx={{ p: 0, minWidth: 0 }}>
-                    Open Aadhaar Manager
+                  Need manager tools?{' '}
+                  <Button type="button" variant="text" onClick={() => navigate('/manage-hub')} sx={{ p: 0, minWidth: 0 }}>
+                    Open Manager Hub
                   </Button>
                 </Typography>
               </Stack>
@@ -234,16 +227,12 @@ function Login() {
           </CardContent>
         </Card>
       </Container>
-      <Snackbar
+      <AppToast
         open={toast.open}
-        autoHideDuration={3000}
+        message={toast.message}
+        severity={toast.severity}
         onClose={closeToast}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
-          {toast.message}
-        </Alert>
-      </Snackbar>
+      />
     </Box>
   );
 }

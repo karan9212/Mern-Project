@@ -1,22 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   Container,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
-  Snackbar,
   Stack,
   Table,
   TableBody,
@@ -29,17 +21,44 @@ import {
   Typography
 } from '@mui/material';
 import API from '../../api/api';
+import AppToast from '../../components/common/AppToast';
+import EntityEditDialog from '../../components/data/EntityEditDialog';
+import EntityTableToolbar from '../../components/data/EntityTableToolbar';
+import PanelCard from '../../components/common/PanelCard';
+import useToast from '../../hooks/useToast';
+import {
+  clearEmployeeActivity,
+  formatCountdown,
+  getEmployeeIdleRemainingMs,
+  hasEmployeeActivityExpired,
+  refreshEmployeeActivity
+} from '../../utils/employeeSession';
 
 const toDateInputValue = (value) => (value ? new Date(value).toISOString().split('T')[0] : '');
 const toDisplayDate = (value) => (value ? new Date(value).toLocaleDateString() : 'N/A');
+const getPrimaryEmployeeRole = (employeeType) => {
+  if (Array.isArray(employeeType)) {
+    if (employeeType.includes('admin')) return 'admin';
+    if (employeeType.includes('subAdmin')) return 'subAdmin';
+    return 'team';
+  }
+
+  if (employeeType === 'admin') return 'admin';
+  if (employeeType === 'subAdmin') return 'subAdmin';
+  return 'team';
+};
 
 function AllUserData() {
   const navigate = useNavigate();
   const name = localStorage.getItem('name');
+  const userId = localStorage.getItem('userId');
+  const loginAs = localStorage.getItem('loginAs') || 'user';
   const sessionExpiry = Number(localStorage.getItem('sessionExpiry'));
+  const hasSessionLimit = loginAs === 'user';
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,35 +74,105 @@ function AllUserData() {
     status: 'Not Active',
     dateOfDeletion: ''
   });
-  const [toast, setToast] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
-  });
+  const { toast, showToast, closeToast } = useToast();
   const initialLoadRef = useRef(true);
 
-  useEffect(() => {
-    if (!name || !sessionExpiry || Date.now() > sessionExpiry) {
-      localStorage.removeItem('name');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('sessionExpiry');
-      localStorage.removeItem('profileImage');
-      localStorage.removeItem('loginAs');
-      navigate('/');
-    }
-  }, [name, sessionExpiry, navigate]);
-
-  const showToast = useCallback((message, severity = 'success') => {
-    setToast({ open: true, message, severity });
+  const clearStoredSession = useCallback(() => {
+    localStorage.removeItem('name');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('sessionExpiry');
+    localStorage.removeItem('profileImage');
+    localStorage.removeItem('loginAs');
+    clearEmployeeActivity();
   }, []);
 
-  const closeToast = (_, reason) => {
-    if (reason === 'clickaway') return;
-    setToast((prev) => ({ ...prev, open: false }));
-  };
+  const handleEmployeeIdleLogout = useCallback(async () => {
+    try {
+      if (userId) {
+        await API.post('/logoutUser', { userId });
+      }
+    } catch (error) {
+      // Local cleanup should still proceed.
+    } finally {
+      clearStoredSession();
+      navigate('/');
+    }
+  }, [userId, clearStoredSession, navigate]);
+
+  const recordEmployeeActivity = useCallback(() => {
+    if (loginAs !== 'employee') return;
+    refreshEmployeeActivity();
+    setNow(Date.now());
+  }, [loginAs]);
+
+  useEffect(() => {
+    const verifyAccess = async () => {
+      if (!name || !userId) {
+        navigate('/');
+        return;
+      }
+
+      if (!hasSessionLimit && hasEmployeeActivityExpired()) {
+        await handleEmployeeIdleLogout();
+        return;
+      }
+
+      if (hasSessionLimit && (!sessionExpiry || Date.now() > sessionExpiry)) {
+        clearStoredSession();
+        navigate('/');
+        return;
+      }
+
+      try {
+        const res = await API.get(`/user/${userId}`);
+        const profile = res.data?.user || {};
+        const role = getPrimaryEmployeeRole(profile.employeeType);
+        const isAdmin = profile.loginAs === 'employee' && role === 'admin';
+
+        if (!isAdmin) {
+          navigate('/dashboard');
+        }
+      } catch (error) {
+        navigate('/dashboard');
+      }
+    };
+
+    verifyAccess();
+  }, [name, userId, hasSessionLimit, sessionExpiry, navigate, clearStoredSession, handleEmployeeIdleLogout]);
+
+  useEffect(() => {
+    if (loginAs === 'employee') {
+      recordEmployeeActivity();
+    }
+  }, [loginAs, recordEmployeeActivity]);
+
+  useEffect(() => {
+    if (loginAs !== 'employee') return undefined;
+
+    const intervalId = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [loginAs]);
+
+  useEffect(() => {
+    if (loginAs !== 'employee') return undefined;
+
+    const intervalId = setInterval(() => {
+      if (hasEmployeeActivityExpired()) {
+        handleEmployeeIdleLogout();
+      }
+    }, 60000);
+
+    return () => clearInterval(intervalId);
+  }, [loginAs, handleEmployeeIdleLogout]);
 
   const fetchUsers = useCallback(async (silent = false, manual = false) => {
     try {
+      if (manual && loginAs === 'employee') {
+        recordEmployeeActivity();
+      }
       if (manual) {
         setIsManualRefreshing(true);
       }
@@ -103,7 +192,17 @@ function AllUserData() {
         setIsManualRefreshing(false);
       }
     }
-  }, [showToast]);
+  }, [showToast, loginAs, recordEmployeeActivity]);
+
+  const employeeIdleRemainingMs = useMemo(() => {
+    if (loginAs !== 'employee') return 0;
+    return getEmployeeIdleRemainingMs(now);
+  }, [loginAs, now]);
+
+  const employeeIdleTimeLeft = useMemo(() => {
+    if (loginAs !== 'employee') return '';
+    return formatCountdown(employeeIdleRemainingMs);
+  }, [loginAs, employeeIdleRemainingMs]);
 
   useEffect(() => {
     fetchUsers();
@@ -220,187 +319,180 @@ function AllUserData() {
       }}
     >
       <Container maxWidth="xl">
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5} mb={2}>
-              <Typography variant="h5" fontWeight={700}>All User Data</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                <Button variant="outlined" onClick={() => fetchUsers(true, true)} disabled={isManualRefreshing}>
-                  {isManualRefreshing ? 'Refreshing...' : 'Refresh'}
-                </Button>
-                <TextField
-                  size="small"
-                  label="Search users"
-                  placeholder="Name / User ID / Mobile"
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setPage(0);
-                  }}
-                  sx={{ width: { xs: '100%', sm: 260 } }}
-                />
-                <Button variant="outlined" onClick={() => navigate('/dashboard')}>Back to Dashboard</Button>
-              </Stack>
-            </Stack>
+        <PanelCard>
+          <EntityTableToolbar
+            title="All User Data"
+            refreshLabel="Refresh"
+            onRefresh={() => fetchUsers(true, true)}
+            isRefreshing={isManualRefreshing}
+            searchLabel="Search users"
+            searchPlaceholder="Name / User ID / Mobile"
+            searchValue={searchTerm}
+            onSearchChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(0);
+            }}
+            onBack={() => {
+              if (loginAs === 'employee') {
+                recordEmployeeActivity();
+              }
+              navigate('/dashboard');
+            }}
+            showIdleCountdown={loginAs === 'employee'}
+            idleRemainingMs={employeeIdleRemainingMs}
+            idleTimeText={employeeIdleTimeLeft}
+          />
 
-            {loading ? (
-              <Typography color="text.secondary">Loading users...</Typography>
-            ) : filteredUsers.length === 0 ? (
-              <Typography color="text.secondary">No user yet.</Typography>
-            ) : (
-              <>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Name</TableCell>
-                        <TableCell>User ID</TableCell>
-                        <TableCell>Gender</TableCell>
-                        <TableCell>Age</TableCell>
-                        <TableCell>Phone</TableCell>
-                        <TableCell>Aadhaar</TableCell>
-                        <TableCell>User Category</TableCell>
-                        <TableCell>Verified</TableCell>
-                        <TableCell>Address</TableCell>
-                        <TableCell>DOJ</TableCell>
-                        <TableCell>No. of Bookings</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Date of Deletion</TableCell>
-                        <TableCell align="right">Action</TableCell>
+          {loading ? (
+            <Typography color="text.secondary">Loading users...</Typography>
+          ) : filteredUsers.length === 0 ? (
+            <Typography color="text.secondary">No user yet.</Typography>
+          ) : (
+            <>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>User ID</TableCell>
+                      <TableCell>Gender</TableCell>
+                      <TableCell>Age</TableCell>
+                      <TableCell>Phone</TableCell>
+                      <TableCell>Aadhaar</TableCell>
+                      <TableCell>User Category</TableCell>
+                      <TableCell>Verified</TableCell>
+                      <TableCell>Address</TableCell>
+                      <TableCell>DOJ</TableCell>
+                      <TableCell>No. of Bookings</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Date of Deletion</TableCell>
+                      <TableCell align="right">Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pagedUsers.map((user) => (
+                      <TableRow
+                        key={user.userId}
+                        sx={user.status === 'Deleted' ? { opacity: 0.55, backgroundColor: 'action.disabledBackground' } : {}}
+                      >
+                        <TableCell>{user.name || 'N/A'}</TableCell>
+                        <TableCell>{user.userId || 'N/A'}</TableCell>
+                        <TableCell>{user.gender || 'N/A'}</TableCell>
+                        <TableCell>{typeof user.age === 'number' ? user.age : 'N/A'}</TableCell>
+                        <TableCell>{user.phoneNo || 'N/A'}</TableCell>
+                        <TableCell>{user.aadhaarNumber || 'N/A'}</TableCell>
+                        <TableCell>{user.userCategory || 'N/A'}</TableCell>
+                        <TableCell>{user.isVerified ? 'Yes' : 'No'}</TableCell>
+                        <TableCell>{user.address || 'N/A'}</TableCell>
+                        <TableCell>{toDisplayDate(user.dateOfJoining)}</TableCell>
+                        <TableCell>{String(user.noOfBookings ?? 0)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={user.status || 'Not Active'}
+                            color={user.status === 'Active' ? 'success' : user.status === 'Deleted' ? 'error' : 'warning'}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {user.dateOfDeletion ? (
+                            <Typography color="error.main">{toDisplayDate(user.dateOfDeletion)}</Typography>
+                          ) : (
+                            <Typography color="success.main">Not deleted</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => handleEditOpen(user)}
+                            disabled={user.status === 'Deleted'}
+                          >
+                            Edit
+                          </Button>
+                        </TableCell>
                       </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {pagedUsers.map((user) => (
-                        <TableRow
-                          key={user.userId}
-                          sx={user.status === 'Deleted' ? { opacity: 0.55, backgroundColor: 'action.disabledBackground' } : {}}
-                        >
-                          <TableCell>{user.name || 'N/A'}</TableCell>
-                          <TableCell>{user.userId || 'N/A'}</TableCell>
-                          <TableCell>{user.gender || 'N/A'}</TableCell>
-                          <TableCell>{typeof user.age === 'number' ? user.age : 'N/A'}</TableCell>
-                          <TableCell>{user.phoneNo || 'N/A'}</TableCell>
-                          <TableCell>{user.aadhaarNumber || 'N/A'}</TableCell>
-                          <TableCell>{user.userCategory || 'N/A'}</TableCell>
-                          <TableCell>{user.isVerified ? 'Yes' : 'No'}</TableCell>
-                          <TableCell>{user.address || 'N/A'}</TableCell>
-                          <TableCell>{toDisplayDate(user.dateOfJoining)}</TableCell>
-                          <TableCell>{String(user.noOfBookings ?? 0)}</TableCell>
-                          <TableCell>
-                            <Chip
-                              size="small"
-                              label={user.status || 'Not Active'}
-                              color={user.status === 'Active' ? 'success' : user.status === 'Deleted' ? 'error' : 'warning'}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {user.dateOfDeletion ? (
-                              <Typography color="error.main">{toDisplayDate(user.dateOfDeletion)}</Typography>
-                            ) : (
-                              <Typography color="success.main">Not deleted</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              onClick={() => handleEditOpen(user)}
-                              disabled={user.status === 'Deleted'}
-                            >
-                              Edit
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-                <TablePagination
-                  component="div"
-                  count={filteredUsers.length}
-                  page={page}
-                  onPageChange={(_, newPage) => setPage(newPage)}
-                  rowsPerPage={rowsPerPage}
-                  onRowsPerPageChange={(e) => {
-                    setRowsPerPage(parseInt(e.target.value, 10));
-                    setPage(0);
-                  }}
-                  rowsPerPageOptions={[5, 10, 20]}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <TablePagination
+                component="div"
+                count={filteredUsers.length}
+                page={page}
+                onPageChange={(_, newPage) => setPage(newPage)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => {
+                  setRowsPerPage(parseInt(e.target.value, 10));
+                  setPage(0);
+                }}
+                rowsPerPageOptions={[5, 10, 20]}
+              />
+            </>
+          )}
+        </PanelCard>
       </Container>
 
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Update User</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Name" name="name" value={editForm.name} onChange={handleEditInput} fullWidth />
-            <FormControl fullWidth>
-              <InputLabel id="user-gender-label">Gender</InputLabel>
-              <Select labelId="user-gender-label" name="gender" value={editForm.gender} label="Gender" onChange={handleEditInput}>
-                <MenuItem value="male">Male</MenuItem>
-                <MenuItem value="female">Female</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Date of Birth"
-              name="dateOfBirth"
-              type="date"
-              value={editForm.dateOfBirth}
-              onChange={handleEditInput}
-              InputLabelProps={{ shrink: true }}
-              fullWidth
-            />
-            <TextField label="Address" name="address" value={editForm.address} onChange={handleEditInput} fullWidth multiline minRows={2} />
-            <FormControl fullWidth>
-              <InputLabel id="user-status-label">Status</InputLabel>
-              <Select
-                labelId="user-status-label"
-                name="status"
-                value={editForm.status}
-                label="Status"
-                onChange={handleEditInput}
-              >
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Not Active">Not Active</MenuItem>
-                <MenuItem value="Deleted">Deleted</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Date of Deletion"
-              name="dateOfDeletion"
-              type="date"
-              value={editForm.dateOfDeletion}
-              onChange={handleEditInput}
-              InputLabelProps={{ shrink: true }}
-              disabled={editForm.status !== 'Deleted'}
-              helperText={editForm.status !== 'Deleted' ? 'Not deleted' : ''}
-              fullWidth
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleUpdateUser} variant="contained" disabled={saving}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
-        open={toast.open}
-        autoHideDuration={3000}
-        onClose={closeToast}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      <EntityEditDialog
+        open={editOpen}
+        title="Update User"
+        onClose={() => setEditOpen(false)}
+        onSave={handleUpdateUser}
+        saving={saving}
       >
-        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
-          {toast.message}
-        </Alert>
-      </Snackbar>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField label="Name" name="name" value={editForm.name} onChange={handleEditInput} fullWidth />
+          <FormControl fullWidth>
+            <InputLabel id="user-gender-label">Gender</InputLabel>
+            <Select labelId="user-gender-label" name="gender" value={editForm.gender} label="Gender" onChange={handleEditInput}>
+              <MenuItem value="male">Male</MenuItem>
+              <MenuItem value="female">Female</MenuItem>
+              <MenuItem value="other">Other</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            label="Date of Birth"
+            name="dateOfBirth"
+            type="date"
+            value={editForm.dateOfBirth}
+            onChange={handleEditInput}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+          />
+          <TextField label="Address" name="address" value={editForm.address} onChange={handleEditInput} fullWidth multiline minRows={2} />
+          <FormControl fullWidth>
+            <InputLabel id="user-status-label">Status</InputLabel>
+            <Select
+              labelId="user-status-label"
+              name="status"
+              value={editForm.status}
+              label="Status"
+              onChange={handleEditInput}
+            >
+              <MenuItem value="Active">Active</MenuItem>
+              <MenuItem value="Not Active">Not Active</MenuItem>
+              <MenuItem value="Deleted">Deleted</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            label="Date of Deletion"
+            name="dateOfDeletion"
+            type="date"
+            value={editForm.dateOfDeletion}
+            onChange={handleEditInput}
+            InputLabelProps={{ shrink: true }}
+            disabled={editForm.status !== 'Deleted'}
+            helperText={editForm.status !== 'Deleted' ? 'Not deleted' : ''}
+            fullWidth
+          />
+        </Stack>
+      </EntityEditDialog>
+
+      <AppToast
+        open={toast.open}
+        message={toast.message}
+        severity={toast.severity}
+        onClose={closeToast}
+      />
     </Box>
   );
 }

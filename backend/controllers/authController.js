@@ -111,28 +111,6 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'User with same Aadhaar or phone number already exists' });
     }
 
-    const deletedUser = await User.findOne({
-      status: 'Deleted',
-      $or: [{ aadhaarNumber: aadhaarUser.aadhaarNumber }, { phoneNo: aadhaarUser.mobile }]
-    }).sort({ _id: -1 });
-
-    if (deletedUser) {
-      deletedUser.name = String(name || '').trim();
-      deletedUser.phoneNo = aadhaarUser.mobile;
-      deletedUser.address = aadhaarUser.address || '';
-      deletedUser.aadhaarNumber = aadhaarUser.aadhaarNumber;
-      deletedUser.isVerified = true;
-      deletedUser.status = 'Not Active';
-      deletedUser.dateOfDeletion = null;
-      deletedUser.profileImage = deletedUser.profileImage || '';
-      await deletedUser.save();
-
-      return res.status(200).json({
-        message: 'Account re-activated successfully',
-        userId: deletedUser.userId
-      });
-    }
-
     const userCount = await User.countDocuments();
     const userNumber = userCount + 1;
     const userCategory = 'NP';
@@ -237,14 +215,29 @@ const getUserProfile = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    const { entity } = await findByAnyId(userId);
-    if (!entity) return res.status(404).json({ message: 'User not found' });
+    const { entity, modelType } = await findByAnyId(userId);
+    if (!entity || !modelType) return res.status(404).json({ message: 'User not found' });
 
     res.status(200).json({
       user: {
         name: entity.name,
         userId: entity.userId || entity.employeeId,
-        profileImage: entity.profileImage || ''
+        profileImage: entity.profileImage || '',
+        loginAs: modelType === 'team' ? 'employee' : 'user',
+        phoneNo: entity.phoneNo || '',
+        gender: entity.gender || 'other',
+        dateOfBirth: entity.dateOfBirth || null,
+        address: entity.address || '',
+        status: entity.status || 'Not Active',
+        dateOfJoining: entity.dateOfJoining || null,
+        department: modelType === 'team' ? entity.department || '' : '',
+        position: modelType === 'team' ? entity.position || '' : '',
+        employeeType: modelType === 'team' ? entity.employeeType || ['team'] : [],
+        dateOfExit: modelType === 'team' ? entity.dateOfExit || null : null,
+        education: modelType === 'team' ? entity.education || [] : [],
+        documents: modelType === 'team' ? entity.documents || [] : [],
+        userCategory: modelType === 'user' ? entity.userCategory || '' : '',
+        noOfBookings: modelType === 'user' ? entity.noOfBookings || 0 : 0
       }
     });
   } catch (error) {

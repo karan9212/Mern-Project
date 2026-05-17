@@ -8,7 +8,7 @@ const TeamSchema = new mongoose.Schema(
     dateOfBirth: { type: Date, default: null },
     employeeId: { type: String, required: true, unique: true, trim: true },
     employeeType: {
-      type: [{ type: String, enum: ['team', 'subAdmin'] }],
+      type: [{ type: String, enum: ['team', 'subAdmin', 'admin'] }],
       default: ['team']
     },
     department: { type: String, default: '' },
@@ -51,7 +51,19 @@ const TeamSchema = new mongoose.Schema(
       }
     },
     aadhaarNumber: { type: String, required: true, trim: true },
-    profileImage: { type: String, default: '' }
+    profileImage: { type: String, default: '' },
+    documents: {
+      type: [
+        {
+          id: { type: String, required: true, trim: true },
+          label: { type: String, default: '', trim: true },
+          fileName: { type: String, default: '', trim: true },
+          fileData: { type: String, default: '' },
+          uploadedAt: { type: Date, default: Date.now }
+        }
+      ],
+      default: []
+    }
   },
   { strict: true }
 );

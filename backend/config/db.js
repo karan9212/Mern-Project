@@ -1,13 +1,84 @@
 const mongoose = require('mongoose');
+const { SELLER_STATUS_VALUES, normalizeSellerStatus } = require('../utils/sellerStatus');
 
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('MongoDB Connected');
+const createNormalizedEducationEntry = (entry = {}) => {
+  const educationType = entry?.educationType === 'school' ? 'school' : 'college';
 
-    // Cleanup legacy unique indexes that are no longer part of current schema.
-    // These indexes can cause duplicate-key errors on null values during insert.
-    const usersCollection = mongoose.connection.db.collection('users');
+  return {
+    educationType,
+    collegeName: educationType === 'college' ? String(entry?.collegeName || '').trim() : '',
+    eduDepartment: educationType === 'college' ? String(entry?.eduDepartment || '').trim() : '',
+    courseName: educationType === 'college' ? String(entry?.courseName || '').trim() : '',
+    fromDate: entry?.fromDate || '',
+    currentlyPursuing: educationType === 'college' ? Boolean(entry?.currentlyPursuing) : false,
+    toDate:
+      educationType === 'school'
+        ? (entry?.toDate || '')
+        : (entry?.currentlyPursuing ? '' : (entry?.toDate || '')),
+    certificate:
+      educationType === 'school' || !entry?.currentlyPursuing
+        ? (entry?.certificate || '')
+        : '',
+    certificateName:
+      educationType === 'school' || !entry?.currentlyPursuing
+        ? (entry?.certificateName || '')
+        : '',
+    schoolName: educationType === 'school' ? String(entry?.schoolName || '').trim() : '',
+    schoolAddress: educationType === 'school' ? String(entry?.schoolAddress || '').trim() : '',
+    schoolClass: educationType === 'school' ? String(entry?.schoolClass || '').trim() : '',
+    boardName: educationType === 'school' ? String(entry?.boardName || '').trim() : ''
+  };
+};
+
+const normalizeEducationArray = (education) => {
+  if (!Array.isArray(education) || education.length === 0) return [];
+  return education
+    .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
+    .map((entry) => createNormalizedEducationEntry(entry));
+};
+
+const formatDateKey = (value = new Date()) => {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeEmployeeRole = (employeeType) => {
+  const validRoles = ['team', 'subAdmin', 'admin'];
+  const rawRoles = Array.isArray(employeeType) ? employeeType : [employeeType];
+  const filteredRoles = [...new Set(rawRoles.filter((role) => validRoles.includes(role)))];
+  const normalizedRoles = ['team'];
+
+  if (filteredRoles.includes('admin')) {
+    normalizedRoles.push('admin');
+    return normalizedRoles;
+  }
+
+  if (filteredRoles.includes('subAdmin')) {
+    normalizedRoles.push('subAdmin');
+  }
+
+  return normalizedRoles;
+};
+
+const runDatabaseMaintenance = async () => {
+  // Cleanup legacy unique indexes that are no longer part of current schema.
+  // These indexes can cause duplicate-key errors on null values during insert.
+  const usersCollection = mongoose.connection.db.collection('users');
+    await usersCollection.updateMany(
+      {},
+      {
+        $unset: {
+          userType: '',
+          dateOfExit: '',
+          department: '',
+          isCurrentlyWorking: '',
+          position: ''
+        }
+      }
+    );
     const indexes = await usersCollection.indexes();
     const indexNames = indexes.map((idx) => idx.name);
 
@@ -78,6 +149,25 @@ const connectDB = async () => {
     }
 
     const teamsCollection = mongoose.connection.db.collection('teams');
+    const teamIndexes = await teamsCollection.indexes();
+    const teamIndexNames = teamIndexes.map((idx) => idx.name);
+
+    if (teamIndexNames.includes('teamId_1')) {
+      await teamsCollection.dropIndex('teamId_1');
+      console.log('Dropped legacy index: teams.teamId_1');
+    }
+
+    const conflictingTeamIndexes = teamIndexes.filter(
+      (idx) => idx.unique && (idx.key?.teamId === 1 || idx.key?.aadhaar === 1)
+    );
+
+    for (const idx of conflictingTeamIndexes) {
+      if (teamIndexNames.includes(idx.name)) {
+        await teamsCollection.dropIndex(idx.name);
+        console.log(`Dropped conflicting unique index: teams.${idx.name}`);
+      }
+    }
+
     const legacyTeams = await teamsCollection
       .find({
         $or: [
@@ -98,15 +188,30 @@ const connectDB = async () => {
         if (!doc.employeeId && doc.teamId) next.employeeId = doc.teamId;
         if (!doc.aadhaarNumber && doc.aadhaar) next.aadhaarNumber = doc.aadhaar;
         if (!doc.dateOfBirth && doc.dob) next.dateOfBirth = doc.dob;
-        if (!doc.employeeType && Array.isArray(doc.userType)) next.employeeType = doc.userType;
+        if (!doc.employeeType && Array.isArray(doc.userType)) {
+          next.employeeType = normalizeEmployeeRole(doc.userType);
+        } else if (doc.employeeType) {
+          const normalizedRole = normalizeEmployeeRole(doc.employeeType);
+          if (JSON.stringify(normalizedRole) !== JSON.stringify(doc.employeeType)) {
+            next.employeeType = normalizedRole;
+          }
+        }
         if (!doc.workingStatus && typeof doc.isCurrentlyWorking === 'boolean') {
           next.workingStatus = doc.isCurrentlyWorking ? 'Working' : 'Not Working';
         }
         if (!doc.status && doc.workingStatus) {
           next.status = doc.workingStatus === 'Working' ? 'Active' : 'Not Active';
         }
-        if (typeof doc.education === 'undefined') next.education = [];
+        if (typeof doc.education === 'undefined') {
+          next.education = [];
+        } else {
+          const normalizedEducation = normalizeEducationArray(doc.education);
+          if (JSON.stringify(normalizedEducation) !== JSON.stringify(doc.education)) {
+            next.education = normalizedEducation;
+          }
+        }
         if (typeof doc.recruitedVia === 'undefined') next.recruitedVia = 'self';
+        if (typeof doc.documents === 'undefined') next.documents = [];
 
         if (Object.keys(next).length === 0) return null;
         return {
@@ -133,6 +238,46 @@ const connectDB = async () => {
       }
     }
 
+    const teamsWithLegacyEducation = await teamsCollection
+      .find({ education: { $type: 'array', $ne: [] } })
+      .project({ education: 1 })
+      .toArray();
+
+    if (teamsWithLegacyEducation.length > 0) {
+      const educationBulkOps = teamsWithLegacyEducation
+        .map((doc) => {
+          const normalizedEducation = normalizeEducationArray(doc.education);
+          if (JSON.stringify(normalizedEducation) === JSON.stringify(doc.education)) return null;
+
+          return {
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $set: { education: normalizedEducation } }
+            }
+          };
+        })
+        .filter(Boolean);
+
+      if (educationBulkOps.length > 0) {
+        await teamsCollection.bulkWrite(educationBulkOps);
+        console.log(`Normalized education for ${educationBulkOps.length} employee records`);
+      }
+    }
+
+    await teamsCollection.updateMany(
+      { documents: { $exists: false } },
+      { $set: { documents: [] } }
+    );
+
+    const adminEmployeesCount = await teamsCollection.countDocuments({ employeeType: 'admin' });
+    if (adminEmployeesCount === 0) {
+      const firstEmployee = await teamsCollection.findOne({}, { sort: { _id: 1 } });
+      if (firstEmployee) {
+        await teamsCollection.updateOne({ _id: firstEmployee._id }, { $set: { employeeType: ['team', 'admin'] } });
+        console.log(`Promoted first employee ${firstEmployee.employeeId || firstEmployee._id} to admin`);
+      }
+    }
+
     const aadhaarCollection = mongoose.connection.db.collection('aadhaarData');
     await aadhaarCollection.updateMany(
       { $or: [{ gender: { $exists: false } }, { dateOfBirth: { $exists: false } }] },
@@ -154,9 +299,235 @@ const connectDB = async () => {
       ]);
       console.log('Seeded aadhaarData collection with default records');
     }
+
+    const productsCollection = mongoose.connection.db.collection('products');
+    const productCount = await productsCollection.countDocuments();
+    if (productCount < 100) {
+      const categories = ['Electronics', 'Home', 'Fitness', 'Office', 'Automotive'];
+      const subcategories = ['Accessories', 'Premium', 'Essentials', 'Compact', 'Pro'];
+      const brands = ['NovaTech', 'UrbanNest', 'FitCore', 'WorkMate', 'DriveX'];
+      const colors = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gray'];
+      const statuses = ['active', 'inactive', 'discontinued'];
+      const existingIds = await productsCollection.distinct('productid');
+      const existingIdSet = new Set(existingIds.map((id) => String(id)));
+      const productsToInsert = [];
+
+      for (let i = 1; i <= 100; i += 1) {
+        const productid = `PRD${String(i).padStart(4, '0')}`;
+        if (existingIdSet.has(productid)) continue;
+
+        const category = categories[(i - 1) % categories.length];
+        const subcategory = subcategories[(i - 1) % subcategories.length];
+        const brand = brands[(i - 1) % brands.length];
+        const color = colors[(i - 1) % colors.length];
+        const status = statuses[(i - 1) % statuses.length];
+
+        productsToInsert.push({
+          productName: `${brand} ${category} Item ${i}`,
+          hsnCode: `${100000 + i}`,
+          productid,
+          category,
+          subcategory,
+          brand,
+          description: `Seeded product ${i} for ${category} category.`,
+          productImages: [`https://picsum.photos/seed/product-${i}/600/600`],
+          tags: [category.toLowerCase(), subcategory.toLowerCase(), brand.toLowerCase()],
+          status,
+          sellingPrice: Number((99 + i * 7.5).toFixed(2)),
+          height: Number((8 + (i % 12) * 1.1).toFixed(2)),
+          width: Number((5 + (i % 10) * 0.9).toFixed(2)),
+          weight: Number((0.5 + (i % 15) * 0.18).toFixed(2)),
+          color
+        });
+      }
+
+      if (productsToInsert.length > 0) {
+        await productsCollection.insertMany(productsToInsert);
+        console.log(`Seeded ${productsToInsert.length} products in products collection`);
+      }
+    }
+
+    const sellersCollection = mongoose.connection.db.collection('sellers');
+    const sellerStatusDocs = await sellersCollection
+      .find({}, { projection: { _id: 1, sellerStatus: 1, sellerLocationCordinates: 1 } })
+      .toArray();
+    const sellerNormalizationOps = sellerStatusDocs.reduce((ops, seller) => {
+      const normalizedStatus = normalizeSellerStatus(seller.sellerStatus);
+      const lat = Number(seller.sellerLocationCordinates?.lat ?? 28.6139);
+      const lng = Number(seller.sellerLocationCordinates?.lng ?? 77.209);
+      const hasNumericCoords = Number.isFinite(lat) && Number.isFinite(lng);
+      const needsStatusUpdate = normalizedStatus !== seller.sellerStatus;
+      const needsCoordUpdate =
+        seller.sellerLocationCordinates?.lat !== lat || seller.sellerLocationCordinates?.lng !== lng;
+
+      if (!needsStatusUpdate && !needsCoordUpdate) {
+        return ops;
+      }
+
+      ops.push({
+        updateOne: {
+          filter: { _id: seller._id },
+          update: {
+            $set: {
+              sellerStatus: normalizedStatus,
+              ...(hasNumericCoords ? { sellerLocationCordinates: { lat, lng } } : {})
+            }
+          }
+        }
+      });
+      return ops;
+    }, []);
+
+    if (sellerNormalizationOps.length > 0) {
+      await sellersCollection.bulkWrite(sellerNormalizationOps);
+    }
+
+    const sellerCount = await sellersCollection.countDocuments();
+    if (sellerCount < 50) {
+      const products = await productsCollection
+        .find({}, { projection: { productName: 1, category: 1 } })
+        .toArray();
+      const categoryPool = [...new Set(products.map((p) => p.category).filter(Boolean))];
+      const productNamePool = products.map((p) => p.productName).filter(Boolean);
+
+      const sellersToInsert = [];
+      const existingSellerIds = await sellersCollection.distinct('sellerId');
+      const existingSellerIdSet = new Set(existingSellerIds.map((id) => String(id)));
+
+      for (let i = 1; i <= 50; i += 1) {
+        const sellerId = `SLR${String(i).padStart(4, '0')}`;
+        if (existingSellerIdSet.has(sellerId)) continue;
+
+        const categoryA = categoryPool[(i - 1) % categoryPool.length] || 'Electronics';
+        const categoryB = categoryPool[i % categoryPool.length] || 'Home';
+        const productA = productNamePool[(i * 2) % productNamePool.length] || 'Sample Product A';
+        const productB = productNamePool[(i * 2 + 1) % productNamePool.length] || 'Sample Product B';
+        const lat = Number((28.45 + (i % 20) * 0.02).toFixed(6));
+        const lng = Number((76.9 + (i % 20) * 0.02).toFixed(6));
+        const statuses = SELLER_STATUS_VALUES;
+
+        sellersToInsert.push({
+          sellerName: `Delhi Seller ${i}`,
+          sellerId,
+          sellerCategory: [...new Set([categoryA, categoryB])],
+          sellerDescription: `Seeded seller ${i} handling ${categoryA} and ${categoryB}.`,
+          sellerStatus: statuses[(i - 1) % statuses.length],
+          sellerAddress: `${10 + i}, Block ${String.fromCharCode(65 + (i % 10))}, Delhi`,
+          sellerContact: `98${String(10000000 + i).slice(0, 8)}`,
+          sellerGstIn: `07ABCDE${String(1000 + i)}F1Z${i % 10}`,
+          sellerProducts: [...new Set([productA, productB])],
+          sellerLocationCordinates: { lat, lng }
+        });
+      }
+
+      if (sellersToInsert.length > 0) {
+        await sellersCollection.insertMany(sellersToInsert);
+        console.log(`Seeded ${sellersToInsert.length} sellers in sellers collection`);
+      }
+    }
+
+    const productSalesCollection = mongoose.connection.db.collection('productSales');
+    const productSalesCount = await productSalesCollection.countDocuments();
+    if (productSalesCount === 0) {
+      const products = await productsCollection
+        .find({}, { projection: { productid: 1, productName: 1, category: 1, sellingPrice: 1 } })
+        .limit(30)
+        .toArray();
+      const sellers = await sellersCollection
+        .find({}, { projection: { sellerId: 1, sellerName: 1 } })
+        .limit(20)
+        .toArray();
+
+      const salesToInsert = [];
+      for (let dayOffset = 29; dayOffset >= 0; dayOffset -= 1) {
+        const baseDate = new Date();
+        baseDate.setHours(11, 0, 0, 0);
+        baseDate.setDate(baseDate.getDate() - dayOffset);
+        const entriesForDay = 4 + (dayOffset % 5);
+
+        for (let index = 0; index < entriesForDay; index += 1) {
+          const product = products[(dayOffset * 3 + index) % products.length];
+          const seller = sellers[(dayOffset + index) % Math.max(sellers.length, 1)] || {};
+          const quantitySold = 6 + ((dayOffset + index * 2) % 18);
+          const soldOn = new Date(baseDate);
+          soldOn.setHours(9 + ((index * 2) % 8), (index * 11) % 60, 0, 0);
+
+          salesToInsert.push({
+            productid: String(product?.productid || `PRD${String(index + 1).padStart(4, '0')}`),
+            productName: String(product?.productName || `Product ${index + 1}`),
+            category: String(product?.category || ''),
+            sellerId: String(seller?.sellerId || ''),
+            sellerName: String(seller?.sellerName || ''),
+            soldOn,
+            dateKey: formatDateKey(soldOn),
+            quantitySold,
+            revenue: Number(((product?.sellingPrice || 500) * quantitySold).toFixed(2))
+          });
+        }
+      }
+
+      if (salesToInsert.length > 0) {
+        await productSalesCollection.insertMany(salesToInsert);
+        console.log(`Seeded ${salesToInsert.length} product sales in productSales collection`);
+      }
+    }
+
+    const announcementsCollection = mongoose.connection.db.collection('announcements');
+    const announcementCount = await announcementsCollection.countDocuments();
+    if (announcementCount === 0) {
+      await announcementsCollection.insertMany([
+        {
+          title: 'Monthly Compliance Window',
+          message: 'Please complete your compliance acknowledgements before the 25th of this month.',
+          audience: 'employee',
+          priority: 'high',
+          publishDate: new Date(),
+          active: true
+        },
+        {
+          title: 'Training Calendar Updated',
+          message: 'The latest L&D sessions for product, sales and HR processes are now available.',
+          audience: 'employee',
+          priority: 'normal',
+          publishDate: new Date(),
+          active: true
+        },
+        {
+          title: 'Office Operations Notice',
+          message: 'Hybrid seating allocation for the next two weeks has been published by administration.',
+          audience: 'all',
+          priority: 'low',
+          publishDate: new Date(),
+          active: true
+        }
+      ]);
+      console.log('Seeded announcements collection with default records');
+    }
+};
+
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      family: 4,
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 60000
+    });
+    console.log('MongoDB Connected');
+    mongoose.connection.on('error', (error) => {
+      console.error(`MongoDB connection error: ${error.message}`);
+    });
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB disconnected');
+    });
   } catch (error) {
-    console.error(error.message);
+    console.error(`MongoDB initial connection failed: ${error.message}`);
     process.exit(1);
+  }
+
+  try {
+    await runDatabaseMaintenance();
+  } catch (error) {
+    console.error(`MongoDB maintenance warning: ${error.message}`);
   }
 };
 

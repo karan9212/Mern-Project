@@ -1,39 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  AppBar,
-  Avatar,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  CssBaseline,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  Drawer,
-  FormControlLabel,
-  FormControl,
-  Grid,
-  IconButton,
-  InputLabel,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  MenuItem,
-  Select,
-  Snackbar,
-  Stack,
-  Switch,
-  TextField,
-  Toolbar,
-  Typography
-} from '@mui/material';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Typography } from '@mui/material';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
@@ -41,57 +8,179 @@ import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import TableChartRoundedIcon from '@mui/icons-material/TableChartRounded';
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
-import MenuOpenRoundedIcon from '@mui/icons-material/MenuOpenRounded';
-import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
-import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
-import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
+import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
+import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
+import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
+import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
+import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
 import { useThemeMode } from '../../context/ThemeModeContext';
 import API from '../../api/api';
+import {
+  clearEmployeeActivity,
+  formatCountdown,
+  getEmployeeLastActivity,
+  getEmployeeIdleRemainingMs,
+  hasEmployeeActivityExpired,
+  refreshEmployeeActivity
+} from '../../utils/employeeSession';
+import AppToast from '../../components/common/AppToast';
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import PageLoader from '../../components/common/PageLoader';
+import DashboardLayout from '../../components/layouts/dashboard/DashboardLayout';
+import DashboardSidebar from '../../components/layouts/dashboard/DashboardSidebar';
+import useToast from '../../hooks/useToast';
 
 const drawerWidth = 280;
 const collapsedDrawerWidth = 84;
+const SCHOOL_CLASSES = ['10th', '12th'];
+const SCHOOL_BOARDS = ['CBSE', 'ICSE', 'NIOS', 'State Board', 'IB', 'Cambridge'];
+const COLLEGE_DEPARTMENTS = {
+  'B.Tech': ['Computer Science Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Electronics and Communication', 'Electrical Engineering', 'Information Technology'],
+  'B.E': ['Computer Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Electronics Engineering', 'Electrical Engineering', 'Automobile Engineering'],
+  'M.Tech': ['Computer Science', 'Data Science', 'VLSI Design', 'Structural Engineering', 'Power Systems', 'Thermal Engineering'],
+  'B.Com': ['Accounting', 'Finance', 'Banking', 'Taxation', 'Business Analytics'],
+  'M.Com': ['Advanced Accounting', 'Finance', 'Business Management', 'Economics', 'Taxation'],
+  BSc: ['Physics', 'Chemistry', 'Mathematics', 'Biology', 'Computer Science', 'Statistics'],
+  MSc: ['Physics', 'Chemistry', 'Mathematics', 'Biotechnology', 'Computer Science', 'Environmental Science'],
+  BCA: ['Computer Applications', 'Software Development', 'Data Analytics', 'Cloud Computing'],
+  MCA: ['Computer Applications', 'Artificial Intelligence', 'Cyber Security', 'Data Science'],
+  Arts: ['English', 'History', 'Political Science', 'Economics', 'Psychology', 'Sociology'],
+  BA: ['English', 'History', 'Political Science', 'Economics', 'Psychology', 'Sociology'],
+  MA: ['English', 'History', 'Political Science', 'Economics', 'Psychology', 'Public Administration'],
+  MBA: ['Marketing', 'Finance', 'Human Resources', 'Operations', 'Business Analytics', 'International Business'],
+  Diploma: ['Mechanical Engineering', 'Civil Engineering', 'Electrical Engineering', 'Computer Engineering', 'Fashion Design']
+};
 
-const navItems = [
-  { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
-  { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/profile' },
-  { key: 'team', label: 'Team', icon: <GroupsRoundedIcon />, route: '/team' },
-  { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/tasks' },
-  { key: 'reports', label: 'Reports', icon: <InsightsRoundedIcon />, route: '/reports' },
-  { key: 'allUsers', label: 'All User Data', icon: <TableChartRoundedIcon />, route: '/all-users' },
-  { key: 'allEmployees', label: 'All Employee Data', icon: <GroupsRoundedIcon />, route: '/all-employees' },
-  { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/settings' }
-];
+const createEducationEntry = () => ({
+  id: `edu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  educationType: 'college',
+  collegeName: '',
+  eduDepartment: '',
+  courseName: '',
+  fromDate: '',
+  currentlyPursuing: false,
+  toDate: '',
+  certificate: '',
+  certificateName: '',
+  schoolName: '',
+  schoolAddress: '',
+  schoolClass: '',
+  boardName: ''
+});
 
-function Dashboard({ initialSection = 'overview' }) {
+const normalizeEducationEntry = (entry) => {
+  const base = createEducationEntry();
+  return {
+    ...base,
+    ...entry,
+    id: entry?.id || base.id,
+    educationType: entry?.educationType === 'school' ? 'school' : 'college',
+    currentlyPursuing: Boolean(entry?.currentlyPursuing),
+    certificate: entry?.certificate || '',
+    certificateName: entry?.certificateName || ''
+  };
+};
+
+const getPrimaryEmployeeRole = (employeeType) => {
+  if (Array.isArray(employeeType)) {
+    if (employeeType.includes('admin')) return 'admin';
+    if (employeeType.includes('subAdmin')) return 'subAdmin';
+    return 'team';
+  }
+
+  if (employeeType === 'admin') return 'admin';
+  if (employeeType === 'subAdmin') return 'subAdmin';
+  return 'team';
+};
+
+const normalizeEmployeeTypes = (employeeType) => {
+  const rawRoles = Array.isArray(employeeType) ? employeeType : [employeeType];
+  const uniqueRoles = [...new Set(rawRoles.filter((role) => ['team', 'subAdmin', 'admin'].includes(role)))];
+  const normalizedRoles = ['team'];
+
+  if (uniqueRoles.includes('admin')) {
+    normalizedRoles.push('admin');
+    return normalizedRoles;
+  }
+
+  if (uniqueRoles.includes('subAdmin')) {
+    normalizedRoles.push('subAdmin');
+  }
+
+  return normalizedRoles;
+};
+
+const routeToSection = {
+  '/dashboard': 'overview',
+  '/dashboard/profile': 'profile',
+  '/dashboard/attendance': 'attendance',
+  '/dashboard/leave': 'leave',
+  '/dashboard/tasks': 'tasks',
+  '/dashboard/team': 'teamDirectory',
+  '/dashboard/documents': 'documents',
+  '/dashboard/announcements': 'announcements',
+  '/dashboard/support': 'support',
+  '/dashboard/manage-team': 'teamManagement',
+  '/dashboard/reports': 'reports',
+  '/dashboard/settings': 'settings'
+};
+
+const ProfileSection = lazy(() => import('./sections/ProfileSection'));
+const TeamSection = lazy(() => import('./sections/TeamSection'));
+const ReportsSection = lazy(() => import('./sections/ReportsSection'));
+const SettingsSection = lazy(() => import('./sections/SettingsSection'));
+const UserOverviewSection = lazy(() => import('./sections/UserOverviewSection'));
+const EmployeeOverviewSection = lazy(() => import('./sections/EmployeeOverviewSection'));
+const EmployeeAttendanceSection = lazy(() => import('./sections/EmployeeAttendanceSection'));
+const EmployeeLeaveSection = lazy(() => import('./sections/EmployeeLeaveSection'));
+const EmployeeTasksSection = lazy(() => import('./sections/EmployeeTasksSection'));
+const TeamDirectorySection = lazy(() => import('./sections/TeamDirectorySection'));
+const EmployeeDocumentsSection = lazy(() => import('./sections/EmployeeDocumentsSection'));
+const EmployeeAnnouncementsSection = lazy(() => import('./sections/EmployeeAnnouncementsSection'));
+const EmployeeSupportSection = lazy(() => import('./sections/EmployeeSupportSection'));
+
+function Dashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { mode, toggleColorMode } = useThemeMode();
   const name = localStorage.getItem('name') || 'User';
   const userId = localStorage.getItem('userId') || 'N/A';
   const loginAs = localStorage.getItem('loginAs') || 'user';
   const sessionExpiry = Number(localStorage.getItem('sessionExpiry'));
+  const hasSessionLimit = loginAs === 'user';
+  const activeSection = routeToSection[location.pathname] || 'overview';
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
-  const [activeSection, setActiveSection] = useState(initialSection);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [profileImage, setProfileImage] = useState(localStorage.getItem('profileImage') || '');
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [toast, setToast] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
+  const [employeeLastActivityAt, setEmployeeLastActivityAt] = useState(getEmployeeLastActivity());
+  const [profileDetails, setProfileDetails] = useState({
+    name,
+    userId,
+    loginAs,
+    phoneNo: '',
+    gender: 'other',
+    address: '',
+    status: 'Not Active',
+    dateOfJoining: null,
+    department: '',
+    position: '',
+    employeeType: [],
+    dateOfExit: null,
+    education: [],
+    documents: [],
+    userCategory: '',
+    noOfBookings: 0
   });
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const { toast, showToast, closeToast } = useToast();
   const fileInputRef = useRef(null);
-  const [taskList, setTaskList] = useState([
-    { id: 1, title: 'Approve onboarding docs', done: false },
-    { id: 2, title: 'Review pending attendance alerts', done: true },
-    { id: 3, title: 'Publish weekly HR update', done: false }
-  ]);
+  const lastPathRef = useRef(location.pathname);
   const [employees, setEmployees] = useState([]);
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(false);
   const [isEmployeeSaving, setIsEmployeeSaving] = useState(false);
@@ -109,30 +198,114 @@ function Dashboard({ initialSection = 'overview' }) {
     phoneNo: '',
     address: '',
     aadhaarNumber: '',
-    educationText: '',
+    educationEntries: [createEducationEntry()],
     department: '',
     status: 'Not Active',
     dateOfJoining: '',
     dateOfExit: ''
   });
 
+  const currentEmployeeRole = getPrimaryEmployeeRole(profileDetails.employeeType);
+  const isEmployee = profileDetails.loginAs === 'employee' || loginAs === 'employee';
+  const isAdminEmployee = isEmployee && currentEmployeeRole === 'admin';
+  const isSubAdminEmployee = isEmployee && currentEmployeeRole === 'subAdmin';
+  const isElevatedEmployee = isAdminEmployee || isSubAdminEmployee;
+
+  const navItems = useMemo(() => {
+    if (isAdminEmployee) {
+      return [
+        { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
+        { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/dashboard/profile' },
+        { key: 'attendance', label: 'Attendance', icon: <AccessTimeRoundedIcon />, route: '/dashboard/attendance' },
+        { key: 'leave', label: 'Leave', icon: <EventAvailableRoundedIcon />, route: '/dashboard/leave' },
+        { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/dashboard/tasks' },
+        { key: 'teamDirectory', label: 'Team Directory', icon: <GroupsRoundedIcon />, route: '/dashboard/team' },
+        { key: 'documents', label: 'Documents', icon: <DescriptionRoundedIcon />, route: '/dashboard/documents' },
+        { key: 'announcements', label: 'Announcements', icon: <CampaignRoundedIcon />, route: '/dashboard/announcements' },
+        { key: 'support', label: 'Support', icon: <SupportAgentRoundedIcon />, route: '/dashboard/support' },
+        { key: 'teamManagement', label: 'Employee Management', icon: <BadgeRoundedIcon />, route: '/dashboard/manage-team' },
+        { key: 'allUsers', label: 'All User Data', icon: <TableChartRoundedIcon />, route: '/all-users' },
+        { key: 'allEmployees', label: 'All Employee Data', icon: <GroupsRoundedIcon />, route: '/all-employees' },
+        { key: 'reports', label: 'Reports', icon: <InsightsRoundedIcon />, route: '/dashboard/reports' },
+        { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/dashboard/settings' }
+      ];
+    }
+
+    if (isSubAdminEmployee) {
+      return [
+        { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
+        { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/dashboard/profile' },
+        { key: 'attendance', label: 'Attendance', icon: <AccessTimeRoundedIcon />, route: '/dashboard/attendance' },
+        { key: 'leave', label: 'Leave', icon: <EventAvailableRoundedIcon />, route: '/dashboard/leave' },
+        { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/dashboard/tasks' },
+        { key: 'teamDirectory', label: 'Team Directory', icon: <GroupsRoundedIcon />, route: '/dashboard/team' },
+        { key: 'documents', label: 'Documents', icon: <DescriptionRoundedIcon />, route: '/dashboard/documents' },
+        { key: 'announcements', label: 'Announcements', icon: <CampaignRoundedIcon />, route: '/dashboard/announcements' },
+        { key: 'support', label: 'Support', icon: <SupportAgentRoundedIcon />, route: '/dashboard/support' },
+        { key: 'teamManagement', label: 'Employee Management', icon: <BadgeRoundedIcon />, route: '/dashboard/manage-team' },
+        { key: 'allEmployees', label: 'All Employee Data', icon: <GroupsRoundedIcon />, route: '/all-employees' },
+        { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/dashboard/settings' }
+      ];
+    }
+
+    if (isEmployee) {
+      return [
+        { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
+        { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/dashboard/profile' },
+        { key: 'attendance', label: 'Attendance', icon: <AccessTimeRoundedIcon />, route: '/dashboard/attendance' },
+        { key: 'leave', label: 'Leave', icon: <EventAvailableRoundedIcon />, route: '/dashboard/leave' },
+        { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/dashboard/tasks' },
+        { key: 'teamDirectory', label: 'Team Directory', icon: <GroupsRoundedIcon />, route: '/dashboard/team' },
+        { key: 'documents', label: 'Documents', icon: <DescriptionRoundedIcon />, route: '/dashboard/documents' },
+        { key: 'announcements', label: 'Announcements', icon: <CampaignRoundedIcon />, route: '/dashboard/announcements' },
+        { key: 'support', label: 'Support', icon: <SupportAgentRoundedIcon />, route: '/dashboard/support' },
+        { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/dashboard/settings' }
+      ];
+    }
+
+    return [
+      { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/dashboard' },
+      { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/dashboard/profile' },
+      { key: 'tasks', label: 'Tasks', icon: <TaskAltRoundedIcon />, route: '/dashboard/tasks' },
+      { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/dashboard/settings' }
+    ];
+  }, [isAdminEmployee, isSubAdminEmployee, isEmployee]);
+
   const sessionMinutesLeft = useMemo(() => {
+    if (!hasSessionLimit) return 0;
     if (!sessionExpiry || Number.isNaN(sessionExpiry)) return 0;
     return Math.max(0, Math.floor((sessionExpiry - now) / 60000));
-  }, [sessionExpiry, now]);
+  }, [hasSessionLimit, sessionExpiry, now]);
 
   const sessionTimeLeft = useMemo(() => {
+    if (!hasSessionLimit) return '';
     if (!sessionExpiry || Number.isNaN(sessionExpiry)) return '00:00';
     const totalSecondsLeft = Math.max(0, Math.floor((sessionExpiry - now) / 1000));
     const minutes = String(Math.floor(totalSecondsLeft / 60)).padStart(2, '0');
     const seconds = String(totalSecondsLeft % 60).padStart(2, '0');
     return `${minutes}:${seconds}`;
-  }, [sessionExpiry, now]);
+  }, [hasSessionLimit, sessionExpiry, now]);
 
   const sessionSecondsLeft = useMemo(() => {
+    if (!hasSessionLimit) return 0;
     if (!sessionExpiry || Number.isNaN(sessionExpiry)) return 0;
     return Math.max(0, Math.floor((sessionExpiry - now) / 1000));
-  }, [sessionExpiry, now]);
+  }, [hasSessionLimit, sessionExpiry, now]);
+
+  const employeeIdleRemainingMs = useMemo(() => {
+    if (!isEmployee) return 0;
+    return getEmployeeIdleRemainingMs(now);
+  }, [isEmployee, now]);
+
+  const employeeIdleTimeLeft = useMemo(() => {
+    if (!isEmployee) return '';
+    return formatCountdown(employeeIdleRemainingMs);
+  }, [isEmployee, employeeIdleRemainingMs]);
+
+  const employeeIdleMinutesLeft = useMemo(() => {
+    if (!isEmployee) return 0;
+    return Math.max(0, Math.ceil(employeeIdleRemainingMs / 60000));
+  }, [isEmployee, employeeIdleRemainingMs]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -140,10 +313,6 @@ function Dashboard({ initialSection = 'overview' }) {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    setActiveSection(initialSection);
-  }, [initialSection]);
 
   const markUserNotActive = useCallback(async () => {
     if (!userId || userId === 'N/A') return;
@@ -154,64 +323,108 @@ function Dashboard({ initialSection = 'overview' }) {
     }
   }, [userId]);
 
-  useEffect(() => {
-    if (!name || !sessionExpiry || now > sessionExpiry) {
-      markUserNotActive();
-      localStorage.removeItem('name');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('sessionExpiry');
-      localStorage.removeItem('profileImage');
-      localStorage.removeItem('loginAs');
-      navigate('/');
-    }
-  }, [name, sessionExpiry, now, navigate, markUserNotActive]);
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!userId || userId === 'N/A') return;
-      try {
-        const res = await API.get(`/user/${userId}`);
-        const image = res.data?.user?.profileImage || '';
-        setProfileImage(image);
-        localStorage.setItem('profileImage', image);
-      } catch (error) {
-        // Silent failure: profile image is non-critical for dashboard load
-      }
-    };
-
-    fetchProfile();
-  }, [userId]);
-
-  const showToast = useCallback((message, severity = 'success') => {
-    setToast({ open: true, message, severity });
-  }, []);
-
-  const closeToast = (_, reason) => {
-    if (reason === 'clickaway') return;
-    setToast((prev) => ({ ...prev, open: false }));
-  };
-
-  const handleLogout = async () => {
-    await markUserNotActive();
+  const clearStoredSession = useCallback(() => {
     localStorage.removeItem('name');
     localStorage.removeItem('userId');
     localStorage.removeItem('sessionExpiry');
     localStorage.removeItem('profileImage');
     localStorage.removeItem('loginAs');
+    clearEmployeeActivity();
+  }, []);
+
+  const recordEmployeeActivity = useCallback(() => {
+    if (!isEmployee) return;
+    const timestamp = refreshEmployeeActivity();
+    if (timestamp) {
+      setEmployeeLastActivityAt(timestamp);
+    }
+  }, [isEmployee]);
+
+  useEffect(() => {
+    if (!isEmployee) return;
+    if (!employeeLastActivityAt) {
+      recordEmployeeActivity();
+    }
+  }, [isEmployee, employeeLastActivityAt, recordEmployeeActivity]);
+
+  useEffect(() => {
+    if (!isEmployee) return;
+
+    if (lastPathRef.current !== location.pathname) {
+      lastPathRef.current = location.pathname;
+      recordEmployeeActivity();
+    }
+  }, [location.pathname, isEmployee, recordEmployeeActivity]);
+
+  useEffect(() => {
+    if (!name) {
+      navigate('/');
+      return;
+    }
+
+    if (hasSessionLimit && (!sessionExpiry || now > sessionExpiry)) {
+      markUserNotActive();
+      clearStoredSession();
+      navigate('/');
+      return;
+    }
+
+    if (isEmployee && employeeLastActivityAt && hasEmployeeActivityExpired()) {
+      markUserNotActive();
+      clearStoredSession();
+      navigate('/');
+    }
+  }, [name, hasSessionLimit, sessionExpiry, now, navigate, markUserNotActive, clearStoredSession, isEmployee, employeeLastActivityAt]);
+
+  const fetchProfile = useCallback(async () => {
+    if (!userId || userId === 'N/A') return;
+
+    try {
+      const res = await API.get(`/user/${userId}`);
+      const profile = res.data?.user || {};
+      const image = profile.profileImage || '';
+      setProfileImage(image);
+      localStorage.setItem('profileImage', image);
+      setProfileDetails({
+        name: profile.name || name,
+        userId: profile.userId || userId,
+        loginAs: profile.loginAs || loginAs,
+        phoneNo: profile.phoneNo || '',
+        gender: profile.gender || 'other',
+        address: profile.address || '',
+        status: profile.status || 'Not Active',
+        dateOfJoining: profile.dateOfJoining || null,
+        department: profile.department || '',
+        position: profile.position || '',
+        employeeType: profile.employeeType || [],
+        dateOfExit: profile.dateOfExit || null,
+        education: profile.education || [],
+        documents: profile.documents || [],
+        userCategory: profile.userCategory || '',
+        noOfBookings: profile.noOfBookings || 0
+      });
+    } catch (error) {
+      // Silent failure: profile image is non-critical for dashboard load
+    }
+  }, [userId, name, loginAs]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const handleLogout = async () => {
+    await markUserNotActive();
+    clearStoredSession();
     showToast('You have been logged out.', 'info');
     navigate('/');
   };
 
   const handleSectionChange = (sectionKey) => {
     const selectedNav = navItems.find((item) => item.key === sectionKey);
-    const hasInPageSection = ['overview', 'profile', 'team', 'tasks', 'reports', 'settings'].includes(sectionKey);
-
-    if (hasInPageSection) {
-      setActiveSection(sectionKey);
-    }
     setMobileOpen(false);
 
     if (selectedNav?.route) {
+      recordEmployeeActivity();
       navigate(selectedNav.route);
     }
   };
@@ -225,11 +438,7 @@ function Dashboard({ initialSection = 'overview' }) {
     try {
       setIsDeletingAccount(true);
       await API.delete(`/deleteUser/${userId}`);
-      localStorage.removeItem('name');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('sessionExpiry');
-      localStorage.removeItem('profileImage');
-      localStorage.removeItem('loginAs');
+      clearStoredSession();
       navigate('/');
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to delete account.', 'error');
@@ -239,20 +448,11 @@ function Dashboard({ initialSection = 'overview' }) {
     }
   };
 
-  const toggleTaskStatus = (taskId) => {
-    setTaskList((prev) =>
-      prev.map((task) => (task.id === taskId ? { ...task, done: !task.done } : task))
-    );
-  };
-
   const fetchEmployees = useCallback(async () => {
     try {
       setIsEmployeesLoading(true);
-      const res = await API.get('/teams', { params: { employeeType: 'team' } });
-      const teamUsers = (res.data?.users || []).filter(
-        (user) => Array.isArray(user.employeeType) && user.employeeType.includes('team')
-      );
-      setEmployees(teamUsers);
+      const res = await API.get('/teams');
+      setEmployees(res.data?.users || []);
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to fetch employees.', 'error');
     } finally {
@@ -261,7 +461,7 @@ function Dashboard({ initialSection = 'overview' }) {
   }, [showToast]);
 
   useEffect(() => {
-    if (activeSection !== 'team') return;
+    if (activeSection !== 'teamManagement') return;
     fetchEmployees();
   }, [activeSection, fetchEmployees]);
 
@@ -279,7 +479,7 @@ function Dashboard({ initialSection = 'overview' }) {
       phoneNo: '',
       address: '',
       aadhaarNumber: '',
-      educationText: '',
+      educationEntries: [createEducationEntry()],
       department: '',
       status: 'Not Active',
       dateOfJoining: '',
@@ -291,12 +491,99 @@ function Dashboard({ initialSection = 'overview' }) {
   const handleEmployeeInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     const normalizedValue =
-      name === 'employeeType' ? (Array.isArray(value) ? value : String(value).split(',')) : value;
+      name === 'employeeType' ? normalizeEmployeeTypes(value) : value;
     setEmployeeForm((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : normalizedValue,
       ...(name === 'status' && normalizedValue === 'Active' ? { dateOfExit: '' } : {})
     }));
+  };
+
+  const handleEducationEntryChange = (entryId, field, value) => {
+    setEmployeeForm((prev) => ({
+      ...prev,
+      educationEntries: prev.educationEntries.map((entry) => {
+        if (entry.id !== entryId) return entry;
+
+        if (field === 'educationType') {
+          return normalizeEducationEntry({
+            ...entry,
+            educationType: value,
+            currentlyPursuing: false,
+            toDate: '',
+            certificate: '',
+            certificateName: ''
+          });
+        }
+
+        if (field === 'eduDepartment') {
+          return {
+            ...entry,
+            eduDepartment: value,
+            courseName: ''
+          };
+        }
+
+        if (field === 'currentlyPursuing') {
+          return {
+            ...entry,
+            currentlyPursuing: Boolean(value),
+            toDate: value ? '' : entry.toDate,
+            certificate: value ? '' : entry.certificate,
+            certificateName: value ? '' : entry.certificateName
+          };
+        }
+
+        return {
+          ...entry,
+          [field]: value
+        };
+      })
+    }));
+  };
+
+  const addEducationEntry = () => {
+    setEmployeeForm((prev) => ({
+      ...prev,
+      educationEntries: [...prev.educationEntries, createEducationEntry()]
+    }));
+  };
+
+  const removeEducationEntry = (entryId) => {
+    setEmployeeForm((prev) => {
+      if (prev.educationEntries.length === 1) return prev;
+      return {
+        ...prev,
+        educationEntries: prev.educationEntries.filter((entry) => entry.id !== entryId)
+      };
+    });
+  };
+
+  const handleEducationCertificateUpload = async (entryId, file) => {
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Education certificate must be 2MB or smaller.', 'warning');
+      return;
+    }
+
+    try {
+      const certificate = await fileToBase64(file);
+      setEmployeeForm((prev) => ({
+        ...prev,
+        educationEntries: prev.educationEntries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                certificate,
+                certificateName: file.name
+              }
+            : entry
+        )
+      }));
+    } catch (error) {
+      showToast('Failed to read education certificate.', 'error');
+    }
   };
 
   const handleEditEmployee = (employee) => {
@@ -305,7 +592,7 @@ function Dashboard({ initialSection = 'overview' }) {
       name: employee.name || '',
       gender: employee.gender || 'other',
       dateOfBirth: employee.dateOfBirth ? new Date(employee.dateOfBirth).toISOString().split('T')[0] : '',
-      employeeType: Array.isArray(employee.employeeType) && employee.employeeType.length > 0 ? employee.employeeType : ['team'],
+      employeeType: normalizeEmployeeTypes(employee.employeeType),
       recruitedVia: employee.recruitedVia || 'self',
       referralByName: employee.referralBy?.name || '',
       referralByEmployeeId: employee.referralBy?.employeeId || '',
@@ -314,7 +601,10 @@ function Dashboard({ initialSection = 'overview' }) {
       phoneNo: employee.phoneNo || '',
       address: employee.address || '',
       aadhaarNumber: employee.aadhaarNumber || '',
-      educationText: Array.isArray(employee.education) && employee.education.length > 0 ? JSON.stringify(employee.education) : '',
+      educationEntries:
+        Array.isArray(employee.education) && employee.education.length > 0
+          ? employee.education.map((entry) => normalizeEducationEntry(entry))
+          : [createEducationEntry()],
       department: employee.department || '',
       status: employee.status || 'Not Active',
       dateOfJoining: employee.dateOfJoining ? new Date(employee.dateOfJoining).toISOString().split('T')[0] : '',
@@ -325,14 +615,60 @@ function Dashboard({ initialSection = 'overview' }) {
   const handleSaveEmployee = async (e) => {
     e.preventDefault();
 
-    let education = [];
-    if (employeeForm.educationText.trim()) {
-      try {
-        const parsed = JSON.parse(employeeForm.educationText);
-        education = Array.isArray(parsed) ? parsed : [];
-      } catch (error) {
-        showToast('Education must be valid JSON array.', 'warning');
+    const education = employeeForm.educationEntries.map((entry) => ({
+      educationType: entry.educationType,
+      collegeName: entry.educationType === 'college' ? entry.collegeName.trim() : '',
+      eduDepartment: entry.educationType === 'college' ? entry.eduDepartment : '',
+      courseName: entry.educationType === 'college' ? entry.courseName : '',
+      fromDate: entry.fromDate || '',
+      currentlyPursuing: entry.educationType === 'college' ? Boolean(entry.currentlyPursuing) : false,
+      toDate:
+        entry.educationType === 'school'
+          ? entry.toDate || ''
+          : entry.currentlyPursuing
+            ? ''
+            : (entry.toDate || ''),
+      certificate:
+        entry.educationType === 'school' || !entry.currentlyPursuing
+          ? (entry.certificate || '')
+          : '',
+      certificateName:
+        entry.educationType === 'school' || !entry.currentlyPursuing
+          ? (entry.certificateName || '')
+          : '',
+      schoolName: entry.educationType === 'school' ? entry.schoolName.trim() : '',
+      schoolAddress: entry.educationType === 'school' ? entry.schoolAddress.trim() : '',
+      schoolClass: entry.educationType === 'school' ? entry.schoolClass : '',
+      boardName: entry.educationType === 'school' ? entry.boardName : ''
+    }));
+
+    if (education.length === 0) {
+      showToast('At least one education entry is required.', 'warning');
+      return;
+    }
+
+    for (const entry of education) {
+      if (!entry.fromDate) {
+        showToast('Education from date is required.', 'warning');
         return;
+      }
+
+      if (entry.educationType === 'college') {
+        if (!entry.collegeName || !entry.eduDepartment || !entry.courseName) {
+          showToast('Please complete all required college education fields.', 'warning');
+          return;
+        }
+        if (!entry.currentlyPursuing && (!entry.toDate || !entry.certificate)) {
+          showToast('Completed college education requires to date and certificate.', 'warning');
+          return;
+        }
+      }
+
+      if (entry.educationType === 'school') {
+        if (!entry.schoolName || !entry.schoolAddress || !entry.schoolClass || !entry.boardName || !entry.toDate || !entry.certificate) {
+          showToast('Please complete all required school education fields.', 'warning');
+          return;
+        }
       }
     }
 
@@ -345,6 +681,7 @@ function Dashboard({ initialSection = 'overview' }) {
       address: employeeForm.address.trim(),
       aadhaarNumber: employeeForm.aadhaarNumber.trim(),
       employeeType: employeeForm.employeeType,
+      actingEmployeeId: userId,
       department: employeeForm.department,
       education,
       referralBy:
@@ -435,687 +772,177 @@ function Dashboard({ initialSection = 'overview' }) {
     }
   };
 
-  const drawerContent = (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ p: desktopCollapsed ? 2 : 3, pb: 2 }}>
-        {desktopCollapsed ? (
-          <Typography variant="h5" fontWeight={800} textAlign="center">
-            H
-          </Typography>
-        ) : (
-          <Typography variant="h5" fontWeight={800}>
-            HRMS
-          </Typography>
-        )}
-      </Box>
-      <Divider />
-      <List sx={{ px: 1.5, py: 1 }}>
-        {navItems.map((item) => (
-          <ListItemButton
-            key={item.key}
-            selected={activeSection === item.key}
-            onClick={() => handleSectionChange(item.key)}
-            sx={{
-              borderRadius: 2,
-              mb: 0.5,
-              justifyContent: desktopCollapsed ? 'center' : 'flex-start',
-              px: desktopCollapsed ? 1 : 2
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: desktopCollapsed ? 0 : 38, mr: desktopCollapsed ? 0 : 1 }}>
-              {item.icon}
-            </ListItemIcon>
-            {!desktopCollapsed && <ListItemText primary={item.label} />}
-          </ListItemButton>
-        ))}
-      </List>
-      <Box sx={{ mt: 'auto', p: desktopCollapsed ? 1.5 : 2 }}>
-        <Card
-          variant="outlined"
-          sx={{
-            borderRadius: 3,
-            borderWidth: 2,
-            borderColor: (theme) => {
-              if (sessionSecondsLeft <= 60) return theme.palette.error.main;
-              if (sessionSecondsLeft <= 300) return theme.palette.warning.main;
-              return theme.palette.divider;
-            }
-          }}
-        >
-          <CardContent
-            sx={{
-              p: desktopCollapsed ? 1 : 2,
-              '&:last-child': { pb: desktopCollapsed ? 1 : 2 }
-            }}
-          >
-            {!desktopCollapsed && (
-              <Typography variant="body2" color="text.secondary">
-                Session left
-              </Typography>
-            )}
-            <Typography
-              variant={desktopCollapsed ? 'body2' : 'h6'}
-              fontWeight={700}
-              sx={{
-                textAlign: 'center',
-                fontFamily: 'monospace',
-                letterSpacing: desktopCollapsed ? 0.5 : 0,
-                lineHeight: 1.2
-              }}
-            >
-              {sessionTimeLeft}
-            </Typography>
-            {!desktopCollapsed && (
-              <Typography variant="caption" color="text.secondary">
-                {sessionMinutesLeft} min remaining
-              </Typography>
-            )}
-          </CardContent>
-        </Card>
-      </Box>
-    </Box>
-  );
-
-  const renderOverview = () => (
-    <Grid container spacing={2.5}>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">Total Employees</Typography>
-            <Typography variant="h5" fontWeight={800}>126</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">Present Today</Typography>
-            <Typography variant="h5" fontWeight={800}>112</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">Open Requests</Typography>
-            <Typography variant="h5" fontWeight={800}>14</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">Pending Approvals</Typography>
-            <Typography variant="h5" fontWeight={800}>8</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, md: 8 }}>
-        <Card sx={{ borderRadius: 3, minHeight: 250 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Weekly Activity</Typography>
-            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day, idx) => (
-                <Card key={day} variant="outlined" sx={{ p: 1.5, borderRadius: 2, minWidth: 82 }}>
-                  <Typography variant="body2" color="text.secondary">{day}</Typography>
-                  <Typography variant="h6" fontWeight={700}>{70 + idx * 6}%</Typography>
-                </Card>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
-        <Card sx={{ borderRadius: 3, minHeight: 250 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Announcements</Typography>
-            <Stack spacing={1.2}>
-              <Chip label="Payroll closes on 28th" color="primary" />
-              <Chip label="Policy update published" color="secondary" />
-              <Chip label="Townhall at 4:00 PM" />
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  );
-
-  const renderProfile = () => (
-    <Grid container spacing={2.5}>
-      <Grid size={{ xs: 12, md: 4 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Stack spacing={1.5} alignItems="center">
-              <Avatar src={profileImage} sx={{ width: 82, height: 82 }}>
-                {name.charAt(0).toUpperCase()}
-              </Avatar>
-              <Typography variant="h6" fontWeight={700}>{name}</Typography>
-              <Typography variant="body2" color="text.secondary">User ID: {userId}</Typography>
-              <input
-                type="file"
-                accept="image/*"
-                ref={fileInputRef}
-                onChange={handleProfileImageUpload}
-                style={{ display: 'none' }}
-              />
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleChooseProfileImage}
-                disabled={isUploadingImage}
-              >
-                {isUploadingImage ? 'Uploading...' : 'Upload Profile Picture'}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, md: 8 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Account Details</Typography>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField label="Display Name" value={name} fullWidth disabled />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField label="Employee ID" value={userId} fullWidth disabled />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField label="Department" value="Human Resources" fullWidth disabled />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField label="Role" value="Manager" fullWidth disabled />
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  );
-
-  const renderTeam = () => (
-    <Grid container spacing={2.5}>
-      <Grid size={{ xs: 12, lg: 5 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
-              {editingEmployeeId ? 'Update Employee' : 'Create Employee'}
-            </Typography>
-            <Box component="form" onSubmit={handleSaveEmployee}>
-              <Stack spacing={2}>
-                <TextField label="Name" name="name" value={employeeForm.name} onChange={handleEmployeeInputChange} required fullWidth />
-                <FormControl fullWidth required>
-                  <InputLabel id="position-label">Position</InputLabel>
-                  <Select
-                    labelId="position-label"
-                    name="position"
-                    value={employeeForm.position}
-                    label="Position"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="Manager">Manager</MenuItem>
-                    <MenuItem value="Team Lead">Team Lead</MenuItem>
-                    <MenuItem value="HR Executive">HR Executive</MenuItem>
-                    <MenuItem value="Recruiter">Recruiter</MenuItem>
-                    <MenuItem value="Staff">Staff</MenuItem>
-                  </Select>
-                </FormControl>
-                <TextField label="Phone Number" name="phoneNo" value={employeeForm.phoneNo} onChange={handleEmployeeInputChange} required fullWidth />
-                <TextField label="Aadhaar Number" name="aadhaarNumber" value={employeeForm.aadhaarNumber} onChange={handleEmployeeInputChange} required fullWidth />
-                <FormControl fullWidth>
-                  <InputLabel id="team-user-type-label">Employee Type</InputLabel>
-                  <Select
-                    labelId="team-user-type-label"
-                    name="employeeType"
-                    multiple
-                    value={employeeForm.employeeType}
-                    label="Employee Type"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="team">team</MenuItem>
-                    <MenuItem value="subAdmin">subAdmin</MenuItem>
-                  </Select>
-                </FormControl>
-                <FormControl fullWidth>
-                  <InputLabel id="gender-label">Gender</InputLabel>
-                  <Select
-                    labelId="gender-label"
-                    name="gender"
-                    value={employeeForm.gender}
-                    label="Gender"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="male">Male</MenuItem>
-                    <MenuItem value="female">Female</MenuItem>
-                    <MenuItem value="other">Other</MenuItem>
-                  </Select>
-                </FormControl>
-                <TextField
-                  label="Date of Birth"
-                  name="dateOfBirth"
-                  type="date"
-                  value={employeeForm.dateOfBirth}
-                  onChange={handleEmployeeInputChange}
-                  InputLabelProps={{ shrink: true }}
-                  fullWidth
-                />
-                <TextField label="Address" name="address" value={employeeForm.address} onChange={handleEmployeeInputChange} required fullWidth multiline minRows={2} />
-                <FormControl fullWidth required>
-                  <InputLabel id="department-label">Department</InputLabel>
-                  <Select
-                    labelId="department-label"
-                    name="department"
-                    value={employeeForm.department}
-                    label="Department"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="HR">HR</MenuItem>
-                    <MenuItem value="Engineering">Engineering</MenuItem>
-                    <MenuItem value="Sales">Sales</MenuItem>
-                    <MenuItem value="Operations">Operations</MenuItem>
-                    <MenuItem value="Finance">Finance</MenuItem>
-                  </Select>
-                </FormControl>
-                <TextField label="Experience (yy/mm)" name="experience" value={employeeForm.experience} onChange={handleEmployeeInputChange} fullWidth />
-                <TextField
-                  label="Education (JSON Array)"
-                  name="educationText"
-                  value={employeeForm.educationText}
-                  onChange={handleEmployeeInputChange}
-                  fullWidth
-                  multiline
-                  minRows={2}
-                />
-                <FormControl fullWidth>
-                  <InputLabel id="recruited-via-label">Recruited Via</InputLabel>
-                  <Select
-                    labelId="recruited-via-label"
-                    name="recruitedVia"
-                    value={employeeForm.recruitedVia}
-                    label="Recruited Via"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="referral">Referral</MenuItem>
-                    <MenuItem value="self">Self</MenuItem>
-                    <MenuItem value="hiring campaign">Hiring Campaign</MenuItem>
-                  </Select>
-                </FormControl>
-                {employeeForm.recruitedVia === 'referral' && (
-                  <>
-                    <TextField label="Referral By Name" name="referralByName" value={employeeForm.referralByName} onChange={handleEmployeeInputChange} fullWidth />
-                    <TextField label="Referral By Employee ID" name="referralByEmployeeId" value={employeeForm.referralByEmployeeId} onChange={handleEmployeeInputChange} fullWidth />
-                  </>
-                )}
-                <FormControl fullWidth>
-                  <InputLabel id="working-status-label">Status</InputLabel>
-                  <Select
-                    labelId="working-status-label"
-                    name="status"
-                    value={employeeForm.status}
-                    label="Status"
-                    onChange={handleEmployeeInputChange}
-                  >
-                    <MenuItem value="Active">Active</MenuItem>
-                    <MenuItem value="Not Active">Not Active</MenuItem>
-                    <MenuItem value="Deleted">Deleted</MenuItem>
-                  </Select>
-                </FormControl>
-                <TextField
-                  label="Date of Joining"
-                  name="dateOfJoining"
-                  type="date"
-                  value={employeeForm.dateOfJoining}
-                  onChange={handleEmployeeInputChange}
-                  InputLabelProps={{ shrink: true }}
-                  required
-                  fullWidth
-                />
-                <TextField
-                  label="Date of Exit"
-                  name="dateOfExit"
-                  type="date"
-                  value={employeeForm.dateOfExit}
-                  onChange={handleEmployeeInputChange}
-                  InputLabelProps={{ shrink: true }}
-                  disabled={employeeForm.status === 'Active'}
-                  fullWidth
-                />
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Button type="submit" variant="contained" fullWidth disabled={isEmployeeSaving}>
-                    {isEmployeeSaving ? 'Saving...' : editingEmployeeId ? 'Update Employee' : 'Create Employee'}
-                  </Button>
-                  <Button type="button" variant="outlined" fullWidth onClick={resetEmployeeForm}>
-                    Reset
-                  </Button>
-                </Stack>
-              </Stack>
-            </Box>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, lg: 7 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Existing Employees</Typography>
-            {isEmployeesLoading ? (
-              <Typography color="text.secondary">Loading employees...</Typography>
-            ) : employees.length === 0 ? (
-              <Typography color="text.secondary">No user yet.</Typography>
-            ) : (
-              <Stack spacing={1.2}>
-                {employees.map((employee) => (
-                  <Card key={employee.employeeId} variant="outlined" sx={{ borderRadius: 2 }}>
-                    <CardContent sx={{ py: '12px !important' }}>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
-                        <Box>
-                          <Typography fontWeight={700}>{employee.name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {employee.position || 'N/A'} | {employee.department || 'N/A'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Phone: {employee.phoneNo || 'N/A'} | Aadhaar: {employee.aadhaarNumber || 'N/A'}
-                          </Typography>
-                          <Typography variant="caption" display="block" color="text.secondary">
-                            DOJ: {employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString() : 'N/A'} | Exit: {employee.dateOfExit ? new Date(employee.dateOfExit).toLocaleDateString() : 'N/A'}
-                          </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Chip
-                            size="small"
-                            color={employee.status === 'Active' ? 'success' : employee.status === 'Deleted' ? 'error' : 'warning'}
-                            label={employee.status || 'Not Active'}
-                          />
-                          <Button variant="outlined" size="small" onClick={() => handleEditEmployee(employee)}>
-                            Edit
-                          </Button>
-                        </Stack>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Stack>
-            )}
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  );
-
-  const renderTasks = () => (
-    <Card sx={{ borderRadius: 3 }}>
-      <CardContent>
-        <Typography variant="h6" fontWeight={700} gutterBottom>Tasks</Typography>
-        <Stack spacing={1.2}>
-          {taskList.map((task) => (
-            <Card
-              key={task.id}
-              variant="outlined"
-              sx={{
-                borderRadius: 2,
-                cursor: 'pointer',
-                borderColor: task.done ? 'success.main' : 'divider'
-              }}
-              onClick={() => toggleTaskStatus(task.id)}
-            >
-              <CardContent sx={{ py: '12px !important' }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography
-                    sx={{ textDecoration: task.done ? 'line-through' : 'none' }}
-                  >
-                    {task.title}
-                  </Typography>
-                  <Chip
-                    label={task.done ? 'Done' : 'Pending'}
-                    color={task.done ? 'success' : 'warning'}
-                    size="small"
-                  />
-                </Stack>
-              </CardContent>
-            </Card>
-          ))}
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-
-  const renderReports = () => (
-    <Grid container spacing={2.5}>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Attendance Health</Typography>
-            <Typography color="text.secondary">Current month average attendance</Typography>
-            <Typography variant="h3" fontWeight={800} sx={{ mt: 1 }}>92%</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Recruitment Funnel</Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip label="Applied: 84" />
-              <Chip label="Shortlisted: 26" color="primary" />
-              <Chip label="Interviewed: 12" color="secondary" />
-              <Chip label="Offered: 4" color="success" />
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  );
-
-  const renderSettings = () => (
-    <Grid container spacing={2.5}>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Appearance</Typography>
-            <Card variant="outlined" sx={{ borderRadius: 2, p: 1.5 }}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  {mode === 'dark' ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
-                  <Typography fontWeight={700}>Dark Mode</Typography>
-                </Stack>
-                <FormControlLabel
-                  control={<Switch checked={mode === 'dark'} onChange={toggleColorMode} />}
-                  label={mode === 'dark' ? 'On' : 'Off'}
-                />
-              </Stack>
-            </Card>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Card sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Account Actions</Typography>
-            <Stack spacing={1.5}>
-              <Button
-                color="error"
-                variant="contained"
-                startIcon={<LogoutRoundedIcon />}
-                onClick={() => setLogoutDialogOpen(true)}
-              >
-                Logout
-              </Button>
-              <Button
-                color="error"
-                variant="outlined"
-                startIcon={<DeleteForeverRoundedIcon />}
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                Delete Account
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
+  const sidebarContent = (
+    <DashboardSidebar
+      navItems={navItems}
+      activeSection={activeSection}
+      desktopCollapsed={desktopCollapsed}
+      onSectionChange={handleSectionChange}
+      hasSessionLimit={hasSessionLimit}
+      sessionTimeLeft={sessionTimeLeft}
+      sessionMinutesLeft={sessionMinutesLeft}
+      sessionSecondsLeft={sessionSecondsLeft}
+      isEmployee={isEmployee}
+      employeeIdleTimeLeft={employeeIdleTimeLeft}
+      employeeIdleMinutesLeft={employeeIdleMinutesLeft}
+      employeeIdleRemainingMs={employeeIdleRemainingMs}
+    />
   );
 
   const sectionRenderer = {
-    overview: renderOverview,
-    profile: renderProfile,
-    team: renderTeam,
-    tasks: renderTasks,
-    reports: renderReports,
-    settings: renderSettings
+    overview: isEmployee ? (
+      <EmployeeOverviewSection employeeId={userId} showToast={showToast} />
+    ) : (
+      <UserOverviewSection profileDetails={profileDetails} />
+    ),
+    profile: (
+      <ProfileSection
+        profileImage={profileImage}
+        name={profileDetails.name}
+        userId={profileDetails.userId}
+        loginAs={profileDetails.loginAs}
+        phoneNo={profileDetails.phoneNo}
+        gender={profileDetails.gender}
+        address={profileDetails.address}
+        status={profileDetails.status}
+        dateOfJoining={profileDetails.dateOfJoining}
+        department={profileDetails.department}
+        position={profileDetails.position}
+        dateOfExit={profileDetails.dateOfExit}
+        userCategory={profileDetails.userCategory}
+        noOfBookings={profileDetails.noOfBookings}
+        documents={profileDetails.documents}
+        education={profileDetails.education}
+        fileInputRef={fileInputRef}
+        handleProfileImageUpload={handleProfileImageUpload}
+        handleChooseProfileImage={handleChooseProfileImage}
+        isUploadingImage={isUploadingImage}
+      />
+    ),
+    attendance: isEmployee ? (
+      <EmployeeAttendanceSection employeeId={userId} showToast={showToast} />
+    ) : null,
+    leave: isEmployee ? (
+      <EmployeeLeaveSection employeeId={userId} showToast={showToast} />
+    ) : null,
+    tasks: <EmployeeTasksSection userId={userId} />,
+    teamDirectory: isEmployee ? (
+      <TeamDirectorySection currentEmployeeId={userId} showToast={showToast} />
+    ) : null,
+    documents: isEmployee ? (
+      <EmployeeDocumentsSection
+        employeeId={userId}
+        documents={profileDetails.documents}
+        onDocumentsUpdated={(documents) => setProfileDetails((prev) => ({ ...prev, documents }))}
+        showToast={showToast}
+      />
+    ) : null,
+    announcements: isEmployee ? <EmployeeAnnouncementsSection showToast={showToast} /> : null,
+    support: isEmployee ? <EmployeeSupportSection employeeId={userId} showToast={showToast} /> : null,
+    teamManagement: isElevatedEmployee ? (
+      <TeamSection
+        editingEmployeeId={editingEmployeeId}
+        handleSaveEmployee={handleSaveEmployee}
+        employeeForm={employeeForm}
+        handleEmployeeInputChange={handleEmployeeInputChange}
+        handleEducationEntryChange={handleEducationEntryChange}
+        addEducationEntry={addEducationEntry}
+        removeEducationEntry={removeEducationEntry}
+        handleEducationCertificateUpload={handleEducationCertificateUpload}
+        isEmployeeSaving={isEmployeeSaving}
+        resetEmployeeForm={resetEmployeeForm}
+        isEmployeesLoading={isEmployeesLoading}
+        employees={employees}
+        handleEditEmployee={handleEditEmployee}
+        currentEmployeeRole={currentEmployeeRole}
+        canEditEmployee={(employee) => getPrimaryEmployeeRole(employee.employeeType) !== 'admin'}
+        collegeDepartments={COLLEGE_DEPARTMENTS}
+        schoolClasses={SCHOOL_CLASSES}
+        schoolBoards={SCHOOL_BOARDS}
+      />
+    ) : null,
+    reports: isAdminEmployee ? <ReportsSection /> : null,
+    settings: (
+      <SettingsSection
+        mode={mode}
+        toggleColorMode={toggleColorMode}
+        setLogoutDialogOpen={setLogoutDialogOpen}
+        setDeleteDialogOpen={setDeleteDialogOpen}
+        canDeleteAccount={!isEmployee}
+      />
+    )
   };
 
   const ActiveComponent = sectionRenderer[activeSection] || sectionRenderer.overview;
   const activeLabel = navItems.find((item) => item.key === activeSection)?.label || 'Overview';
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        minHeight: '100vh',
-        background: (theme) =>
+    <>
+      <DashboardLayout
+        background={(theme) =>
           theme.palette.mode === 'dark'
             ? 'linear-gradient(140deg, #0d1220 0%, #151d34 100%)'
             : 'linear-gradient(140deg, #eef3ff 0%, #f8fbff 100%)'
-      }}
-    >
-      <CssBaseline />
-      <AppBar
-        position="fixed"
-        color="inherit"
-        elevation={0}
-        sx={{
-          width: { md: `calc(100% - ${desktopCollapsed ? collapsedDrawerWidth : drawerWidth}px)` },
-          ml: { md: `${desktopCollapsed ? collapsedDrawerWidth : drawerWidth}px` },
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          backgroundColor: (theme) =>
-            theme.palette.mode === 'dark' ? 'rgba(20,27,45,0.88)' : 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(6px)',
-          transition: (theme) =>
-            theme.transitions.create(['width', 'margin-left'], {
-              easing: theme.transitions.easing.sharp,
-              duration: theme.transitions.duration.shorter
-            })
+        }
+        headerProps={{
+          activeLabel,
+          desktopCollapsed,
+          drawerWidth,
+          collapsedDrawerWidth,
+          loginAs,
+          name,
+          onToggleMobile: () => setMobileOpen((prev) => !prev),
+          onToggleDesktop: () => setDesktopCollapsed((prev) => !prev),
+          onLogout: () => setLogoutDialogOpen(true)
         }}
+        drawerProps={{
+          mobileOpen,
+          onMobileClose: () => setMobileOpen(false),
+          desktopCollapsed,
+          drawerWidth,
+          collapsedDrawerWidth
+        }}
+        sidebarContent={sidebarContent}
       >
-        <Toolbar>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            sx={{ mr: 2, display: { md: 'none' } }}
-          >
-            <MenuRoundedIcon />
-          </IconButton>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={() => setDesktopCollapsed((prev) => !prev)}
-            sx={{ mr: 2, display: { xs: 'none', md: 'inline-flex' } }}
-          >
-            {desktopCollapsed ? <MenuRoundedIcon /> : <MenuOpenRoundedIcon />}
-          </IconButton>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h6" fontWeight={700}>{activeLabel}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Hello {loginAs === 'employee' ? 'Team' : 'User'}, {name}
-            </Typography>
-          </Box>
-          <Button variant="outlined" color="error" onClick={() => setLogoutDialogOpen(true)}>
-            Logout
-          </Button>
-        </Toolbar>
-      </AppBar>
+        <Suspense fallback={<PageLoader message="Loading section..." minHeight={320} />}>
+          {ActiveComponent}
+        </Suspense>
+      </DashboardLayout>
+      <ConfirmDialog
+        open={logoutDialogOpen}
+        title="Confirm Logout"
+        description="Do you want to logout from your current session?"
+        onClose={() => setLogoutDialogOpen(false)}
+        onConfirm={handleLogout}
+        confirmLabel="Logout"
+        confirmColor="error"
+      />
 
-      <Box component="nav" sx={{ width: { md: desktopCollapsed ? collapsedDrawerWidth : drawerWidth }, flexShrink: { md: 0 } }}>
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={() => setMobileOpen(false)}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth }
-          }}
-        >
-          {drawerContent}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', md: 'block' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: desktopCollapsed ? collapsedDrawerWidth : drawerWidth,
-              borderRight: '1px solid',
-              borderColor: 'divider',
-              overflowX: 'hidden',
-              transition: (theme) =>
-                theme.transitions.create('width', {
-                  easing: theme.transitions.easing.sharp,
-                  duration: theme.transitions.duration.shorter
-                })
-            }
-          }}
-          open
-        >
-          {drawerContent}
-        </Drawer>
-      </Box>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Delete Account"
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={handleDeleteAccount}
+        confirmLabel={isDeletingAccount ? 'Deleting...' : 'Delete'}
+        confirmColor="error"
+        confirmDisabled={isDeletingAccount}
+        cancelDisabled={isDeletingAccount}
+      >
+        <Typography color="error" fontWeight={700} sx={{ mb: 1 }}>
+          This action cannot be undone.
+        </Typography>
+        <Typography>
+          Are you sure you want to permanently delete your account?
+        </Typography>
+      </ConfirmDialog>
 
-      <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, mt: 10 }}>
-        <Stack spacing={2.5}>
-          {ActiveComponent()}
-        </Stack>
-      </Box>
-
-      <Dialog open={logoutDialogOpen} onClose={() => setLogoutDialogOpen(false)}>
-        <DialogTitle>Confirm Logout</DialogTitle>
-        <DialogContent>
-          <Typography>Do you want to logout from your current session?</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLogoutDialogOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleLogout}>Logout</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Account</DialogTitle>
-        <DialogContent>
-          <Typography color="error" fontWeight={700} sx={{ mb: 1 }}>
-            This action cannot be undone.
-          </Typography>
-          <Typography>
-            Are you sure you want to permanently delete your account?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)} disabled={isDeletingAccount}>
-            Cancel
-          </Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={handleDeleteAccount}
-            disabled={isDeletingAccount}
-          >
-            {isDeletingAccount ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
+      <AppToast
         open={toast.open}
-        autoHideDuration={3000}
+        message={toast.message}
+        severity={toast.severity}
         onClose={closeToast}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
-          {toast.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+      />
+    </>
   );
 }
 

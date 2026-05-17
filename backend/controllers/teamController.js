@@ -1,4 +1,17 @@
 const Team = require('../models/Team');
+const VALID_EMPLOYEE_ROLES = ['team', 'subAdmin', 'admin'];
+
+const getPrimaryEmployeeRole = (employeeTypeInput) => {
+  if (Array.isArray(employeeTypeInput)) {
+    if (employeeTypeInput.includes('admin')) return 'admin';
+    if (employeeTypeInput.includes('subAdmin')) return 'subAdmin';
+    return 'team';
+  }
+
+  if (employeeTypeInput === 'admin') return 'admin';
+  if (employeeTypeInput === 'subAdmin') return 'subAdmin';
+  return 'team';
+};
 
 const getNextEmployeeId = async () => {
   const lastTeam = await Team.findOne({ employeeId: /^IR\d+$/ })
@@ -11,9 +24,20 @@ const getNextEmployeeId = async () => {
 };
 
 const normalizeEmployeeType = (employeeTypeInput) => {
-  const raw = Array.isArray(employeeTypeInput) ? employeeTypeInput : [employeeTypeInput];
-  const cleaned = raw.filter(Boolean);
-  return cleaned.length > 0 ? [...new Set(cleaned)] : ['team'];
+  const rawRoles = Array.isArray(employeeTypeInput) ? employeeTypeInput : [employeeTypeInput];
+  const uniqueRoles = [...new Set(rawRoles.filter((role) => VALID_EMPLOYEE_ROLES.includes(role)))];
+  const normalizedRoles = ['team'];
+
+  if (uniqueRoles.includes('admin')) {
+    normalizedRoles.push('admin');
+    return normalizedRoles;
+  }
+
+  if (uniqueRoles.includes('subAdmin')) {
+    normalizedRoles.push('subAdmin');
+  }
+
+  return normalizedRoles;
 };
 
 const normalizeStatus = (input) => {
@@ -35,6 +59,43 @@ const withAge = (doc) => {
     now.getMonth() > dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() >= dob.getDate());
   if (!hasHadBirthday) age -= 1;
   return { ...plain, age };
+};
+
+const canManageEmployees = (role) => role === 'admin' || role === 'subAdmin';
+
+const getActorEmployee = async (actingEmployeeId) => {
+  if (!actingEmployeeId) return null;
+  return Team.findOne({ employeeId: String(actingEmployeeId).trim() });
+};
+
+const validateCreateRoleAssignment = ({ actorRole, desiredRole, isBootstrap }) => {
+  if (isBootstrap) return { allowed: true, assignedRole: 'admin' };
+
+  if (!canManageEmployees(actorRole)) {
+    return { allowed: false, message: 'Only admin or subAdmin can create employees' };
+  }
+
+  if (actorRole === 'subAdmin' && desiredRole === 'admin') {
+    return { allowed: false, message: 'subAdmin cannot create or assign admin role' };
+  }
+
+  return { allowed: true, assignedRole: desiredRole };
+};
+
+const validateUpdateRoleAssignment = ({ actorRole, targetRole, desiredRole }) => {
+  if (!canManageEmployees(actorRole)) {
+    return { allowed: false, message: 'Only admin or subAdmin can update employees' };
+  }
+
+  if (targetRole === 'admin') {
+    return { allowed: false, message: 'Admin profiles cannot be controlled by other employees' };
+  }
+
+  if (actorRole === 'subAdmin' && desiredRole === 'admin') {
+    return { allowed: false, message: 'subAdmin cannot assign admin role' };
+  }
+
+  return { allowed: true, assignedRole: desiredRole };
 };
 
 const mapPayload = (body) => {
@@ -63,7 +124,8 @@ const mapPayload = (body) => {
     status: typeof mappedStatus !== 'undefined' ? mappedStatus : undefined,
     dateOfExit: typeof body.dateOfExit !== 'undefined' ? body.dateOfExit : undefined,
     aadhaarNumber: typeof body.aadhaarNumber !== 'undefined' ? String(body.aadhaarNumber).trim() : undefined,
-    profileImage: typeof body.profileImage !== 'undefined' ? body.profileImage : undefined
+    profileImage: typeof body.profileImage !== 'undefined' ? body.profileImage : undefined,
+    documents: Array.isArray(body.documents) ? body.documents : undefined
   };
 };
 
@@ -75,7 +137,7 @@ const getAllTeams = async (req, res) => {
 
     const users = await Team.find(filter)
       .select(
-        'name phoneNo gender dateOfBirth employeeId employeeType department position address education experience recruitedVia referralBy dateOfJoining status dateOfExit aadhaarNumber profileImage'
+        'name phoneNo gender dateOfBirth employeeId employeeType department position address education experience recruitedVia referralBy dateOfJoining status dateOfExit aadhaarNumber profileImage documents'
       )
       .sort({ _id: -1 });
 
@@ -106,6 +168,22 @@ const createTeamMember = async (req, res) => {
       return res.status(400).json({ message: 'Employee with same phone number or Aadhaar already exists' });
     }
 
+    const desiredRole = getPrimaryEmployeeRole(mapped.employeeType);
+    const totalEmployees = await Team.countDocuments();
+    const adminCount = await Team.countDocuments({ employeeType: 'admin' });
+    const isBootstrap = totalEmployees === 0 || adminCount === 0;
+    const actorEmployee = isBootstrap ? null : await getActorEmployee(req.body.actingEmployeeId);
+    const actorRole = actorEmployee ? getPrimaryEmployeeRole(actorEmployee.employeeType) : null;
+    const createRoleValidation = validateCreateRoleAssignment({
+      actorRole,
+      desiredRole,
+      isBootstrap
+    });
+
+    if (!createRoleValidation.allowed) {
+      return res.status(403).json({ message: createRoleValidation.message });
+    }
+
     const employeeId = await getNextEmployeeId();
     const user = new Team({
       name: mapped.name,
@@ -113,7 +191,7 @@ const createTeamMember = async (req, res) => {
       gender: mapped.gender || 'other',
       dateOfBirth: mapped.dateOfBirth || null,
       employeeId,
-      employeeType: mapped.employeeType || ['team'],
+      employeeType: normalizeEmployeeType(createRoleValidation.assignedRole === 'admin' ? ['team', 'admin'] : createRoleValidation.assignedRole === 'subAdmin' ? ['team', 'subAdmin'] : ['team']),
       department: mapped.department,
       position: mapped.position,
       address: mapped.address || '',
@@ -125,7 +203,8 @@ const createTeamMember = async (req, res) => {
       status: mapped.status || 'Not Active',
       dateOfExit: mapped.dateOfExit || null,
       aadhaarNumber: mapped.aadhaarNumber,
-      profileImage: mapped.profileImage || ''
+      profileImage: mapped.profileImage || '',
+      documents: mapped.documents || []
     });
 
     await user.save();
@@ -143,6 +222,10 @@ const updateTeamMember = async (req, res) => {
     const existingEmployee = await Team.findOne({ employeeId });
     if (!existingEmployee) return res.status(404).json({ message: 'Employee not found' });
 
+    const actorEmployee = await getActorEmployee(req.body.actingEmployeeId);
+    const actorRole = actorEmployee ? getPrimaryEmployeeRole(actorEmployee.employeeType) : null;
+    const targetRole = getPrimaryEmployeeRole(existingEmployee.employeeType);
+
     const mapped = mapPayload(req.body);
     const updatePayload = {};
     Object.keys(mapped).forEach((key) => {
@@ -151,6 +234,27 @@ const updateTeamMember = async (req, res) => {
 
     if (Object.keys(updatePayload).length === 0) {
       return res.status(400).json({ message: 'No update fields provided' });
+    }
+
+    const desiredRole = getPrimaryEmployeeRole(updatePayload.employeeType || existingEmployee.employeeType);
+    const updateRoleValidation = validateUpdateRoleAssignment({
+      actorRole,
+      targetRole,
+      desiredRole
+    });
+
+    if (!updateRoleValidation.allowed) {
+      return res.status(403).json({ message: updateRoleValidation.message });
+    }
+
+    if (typeof updatePayload.employeeType !== 'undefined') {
+      updatePayload.employeeType = normalizeEmployeeType(
+        updateRoleValidation.assignedRole === 'admin'
+          ? ['team', 'admin']
+          : updateRoleValidation.assignedRole === 'subAdmin'
+            ? ['team', 'subAdmin']
+            : ['team']
+      );
     }
 
     if (updatePayload.phoneNo || updatePayload.aadhaarNumber) {

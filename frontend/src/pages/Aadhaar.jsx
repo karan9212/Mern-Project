@@ -1,17 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Container,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
-  Snackbar,
   Stack,
   Table,
   TableBody,
@@ -23,6 +19,9 @@ import {
   Typography
 } from '@mui/material';
 import API from '../api/api';
+import AppToast from '../components/common/AppToast';
+import PanelCard from '../components/common/PanelCard';
+import useToast from '../hooks/useToast';
 
 function Aadhaar() {
   const navigate = useNavigate();
@@ -38,20 +37,7 @@ function Aadhaar() {
     aadhaarNumber: '',
     mobile: ''
   });
-  const [toast, setToast] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
-  });
-
-  const showToast = useCallback((message, severity = 'success') => {
-    setToast({ open: true, message, severity });
-  }, []);
-
-  const closeToast = (_, reason) => {
-    if (reason === 'clickaway') return;
-    setToast((prev) => ({ ...prev, open: false }));
-  };
+  const { toast, showToast, closeToast } = useToast();
 
   const fetchRecords = useCallback(async () => {
     try {
@@ -144,8 +130,7 @@ function Aadhaar() {
     >
       <Container maxWidth="lg">
         <Stack spacing={2.5}>
-          <Card sx={{ borderRadius: 3 }}>
-            <CardContent>
+          <PanelCard>
               <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5} mb={2}>
                 <Typography variant="h5" fontWeight={700}>
                   Aadhaar Data Manager
@@ -204,11 +189,9 @@ function Aadhaar() {
                   </Stack>
                 </Stack>
               </Box>
-            </CardContent>
-          </Card>
+          </PanelCard>
 
-          <Card sx={{ borderRadius: 3 }}>
-            <CardContent>
+          <PanelCard>
               <Typography variant="h6" fontWeight={700} gutterBottom>
                 Existing Aadhaar Records
               </Typography>
@@ -252,21 +235,16 @@ function Aadhaar() {
                   </Table>
                 </TableContainer>
               )}
-            </CardContent>
-          </Card>
+          </PanelCard>
         </Stack>
       </Container>
 
-      <Snackbar
+      <AppToast
         open={toast.open}
-        autoHideDuration={3000}
+        message={toast.message}
+        severity={toast.severity}
         onClose={closeToast}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: '100%' }}>
-          {toast.message}
-        </Alert>
-      </Snackbar>
+      />
     </Box>
   );
 }
