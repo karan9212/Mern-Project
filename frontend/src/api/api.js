@@ -1,7 +1,11 @@
 import axios from 'axios';
 import { refreshEmployeeActivity } from '../utils/employeeSession';
 
-const API = axios.create({ baseURL: 'http://localhost:5000/api/auth' }); // Backend URL
+const API = axios.create({
+  baseURL: `${process.env.REACT_APP_API_URL}/api/auth`
+}); // Backend URL
+
+console.log("API URL:", process.env.REACT_APP_API_URL);
 
 // Add token in headers if available
 API.interceptors.request.use((req) => {
