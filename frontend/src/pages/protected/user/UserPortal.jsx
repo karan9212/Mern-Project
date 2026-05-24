@@ -5,6 +5,7 @@ import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import FmdGoodRoundedIcon from '@mui/icons-material/FmdGoodRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import { Typography } from '@mui/material';
@@ -15,6 +16,7 @@ import PageLoader from '../../../components/common/PageLoader';
 import UserPortalLayout from '../../../components/layouts/user/UserPortalLayout';
 import UserPortalSidebar from '../../../components/layouts/user/UserPortalSidebar';
 import useToast from '../../../hooks/useToast';
+import useUserCart from '../../../hooks/useUserCart';
 import { useThemeMode } from '../../../context/ThemeModeContext';
 import ProfileSection from '../sections/ProfileSection';
 import SettingsSection from '../sections/SettingsSection';
@@ -24,6 +26,7 @@ const UserCatalogSection = lazy(() => import('./sections/UserCatalogSection'));
 const UserNearbySellersSection = lazy(() => import('./sections/UserNearbySellersSection'));
 const UserOrdersSection = lazy(() => import('./sections/UserOrdersSection'));
 const UserCheckoutSection = lazy(() => import('./sections/UserCheckoutSection'));
+const UserTrackOrdersSection = lazy(() => import('./sections/UserTrackOrdersSection'));
 
 const routeToSection = {
   '/user-portal': 'overview',
@@ -31,6 +34,7 @@ const routeToSection = {
   '/user-portal/sellers': 'sellers',
   '/user-portal/orders': 'orders',
   '/user-portal/checkout': 'checkout',
+  '/user-portal/track-orders': 'trackOrders',
   '/user-portal/profile': 'profile',
   '/user-portal/settings': 'settings'
 };
@@ -46,6 +50,16 @@ function UserPortal() {
   const activeSection = routeToSection[location.pathname] || 'overview';
   const fileInputRef = useRef(null);
   const { toast, showToast, closeToast } = useToast();
+  const {
+    cartItems,
+    cartItemCount,
+    focusedProduct,
+    setFocusedProduct,
+    addToCart,
+    updateCartItemQuantity,
+    removeCartItem,
+    clearCart
+  } = useUserCart();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileImage, setProfileImage] = useState(localStorage.getItem('profileImage') || '');
@@ -72,29 +86,18 @@ function UserPortal() {
     documents: [],
     education: []
   });
-  const [selectedProduct, setSelectedProduct] = useState(() => {
-    const stored = localStorage.getItem('userSelectedProduct');
-    if (!stored) return null;
-
-    try {
-      return JSON.parse(stored);
-    } catch (error) {
-      localStorage.removeItem('userSelectedProduct');
-      return null;
-    }
-  });
-
   const navItems = useMemo(
     () => [
       { key: 'overview', label: 'Overview', icon: <DashboardRoundedIcon />, route: '/user-portal' },
       { key: 'catalog', label: 'Rent Products', icon: <Inventory2RoundedIcon />, route: '/user-portal/catalog' },
       { key: 'sellers', label: 'Nearby Sellers', icon: <FmdGoodRoundedIcon />, route: '/user-portal/sellers' },
       { key: 'orders', label: 'My Orders', icon: <ReceiptLongRoundedIcon />, route: '/user-portal/orders' },
-      { key: 'checkout', label: 'Checkout', icon: <PaymentsRoundedIcon />, route: '/user-portal/checkout' },
+      { key: 'checkout', label: `Cart & Checkout${cartItemCount > 0 ? ` (${cartItemCount})` : ''}`, icon: <PaymentsRoundedIcon />, route: '/user-portal/checkout' },
+      { key: 'trackOrders', label: 'Track Order', icon: <LocalShippingRoundedIcon />, route: '/user-portal/track-orders' },
       { key: 'profile', label: 'Profile', icon: <PersonRoundedIcon />, route: '/user-portal/profile' },
       { key: 'settings', label: 'Settings', icon: <SettingsRoundedIcon />, route: '/user-portal/settings' }
     ],
-    []
+    [cartItemCount]
   );
 
   useEffect(() => {
@@ -114,6 +117,7 @@ function UserPortal() {
     localStorage.removeItem('sessionExpiry');
     localStorage.removeItem('profileImage');
     localStorage.removeItem('loginAs');
+    localStorage.removeItem('userCartItems');
     localStorage.removeItem('userSelectedProduct');
   }, []);
 
@@ -172,14 +176,6 @@ function UserPortal() {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
-
-  useEffect(() => {
-    if (selectedProduct) {
-      localStorage.setItem('userSelectedProduct', JSON.stringify(selectedProduct));
-    } else {
-      localStorage.removeItem('userSelectedProduct');
-    }
-  }, [selectedProduct]);
 
   const handleLogout = async () => {
     await markUserNotActive();
@@ -258,34 +254,42 @@ function UserPortal() {
 
   const handleOrderPlaced = useCallback(() => {
     setOrdersRefreshKey((prev) => prev + 1);
-    setSelectedProduct(null);
+    clearCart();
     fetchProfile();
-    navigate('/user-portal/orders');
-  }, [fetchProfile, navigate]);
+    navigate('/user-portal/track-orders');
+  }, [clearCart, fetchProfile, navigate]);
 
   const sectionRenderer = {
     overview: <UserPortalOverviewSection userId={userId} showToast={showToast} key={`overview-${ordersRefreshKey}`} />,
     catalog: (
       <UserCatalogSection
         userId={userId}
-        selectedProduct={selectedProduct}
-        onSelectProduct={setSelectedProduct}
+        selectedProduct={focusedProduct}
+        cartItems={cartItems}
+        onSelectProduct={setFocusedProduct}
+        onAddToCart={addToCart}
+        onUpdateCartItemQuantity={updateCartItemQuantity}
         showToast={showToast}
       />
     ),
     sellers: (
       <UserNearbySellersSection
         userId={userId}
-        selectedProduct={selectedProduct}
+        selectedProduct={focusedProduct}
         showToast={showToast}
       />
     ),
     orders: <UserOrdersSection userId={userId} refreshKey={ordersRefreshKey} showToast={showToast} />,
+    trackOrders: <UserTrackOrdersSection userId={userId} refreshKey={ordersRefreshKey} showToast={showToast} />,
     checkout: (
       <UserCheckoutSection
         userId={userId}
-        selectedProduct={selectedProduct}
+        selectedProduct={focusedProduct}
+        cartItems={cartItems}
         profileDetails={profileDetails}
+        onSelectProduct={setFocusedProduct}
+        onUpdateCartItemQuantity={updateCartItemQuantity}
+        onRemoveCartItem={removeCartItem}
         showToast={showToast}
         onOrderPlaced={handleOrderPlaced}
       />

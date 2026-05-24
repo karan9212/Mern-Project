@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Product = require('../models/Product');
+const RentalCheckoutSession = require('../models/RentalCheckoutSession');
 const RentalOrder = require('../models/RentalOrder');
 const Seller = require('../models/Seller');
 const User = require('../models/User');
@@ -8,6 +9,11 @@ const UserActivity = require('../models/UserActivity');
 const DEFAULT_DELIVERY_FEE = 99;
 const DEFAULT_GST_RATE = 0.18;
 const DEFAULT_SERVICE_LOCATION = { lat: 28.6139, lng: 77.209 };
+const DELIVERY_BOYS = [
+  { deliveryBoyId: 'DLV001', name: 'Arjun Kumar', phoneNo: '9891001001' },
+  { deliveryBoyId: 'DLV002', name: 'Ravi Malik', phoneNo: '9891001002' },
+  { deliveryBoyId: 'DLV003', name: 'Sonu Verma', phoneNo: '9891001003' }
+];
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -97,6 +103,99 @@ const getBestSellerForProduct = async ({ product, sellerId }) => {
   return fallbackSeller;
 };
 
+const normalizeTrackingStatus = (trackingStatus, orderStatus) => {
+  if (trackingStatus) return trackingStatus;
+  if (orderStatus === 'cancelled') return 'cancelled';
+  if (orderStatus === 'completed') return 'delivered';
+  if (orderStatus === 'confirmed') return 'seller_confirmed';
+  return 'order_placed';
+};
+
+const buildTrackingSnapshot = (order) => {
+  const trackingStatus = normalizeTrackingStatus(order.trackingStatus, order.orderStatus);
+  const stepSequence = ['order_placed', 'seller_confirmed', 'packed', 'out_for_delivery', 'delivered'];
+  const activeStep = trackingStatus === 'cancelled' ? -1 : stepSequence.indexOf(trackingStatus);
+
+  return {
+    currentStatus: trackingStatus,
+    activeStep,
+    isDelivered: trackingStatus === 'delivered',
+    isCancelled: trackingStatus === 'cancelled',
+    steps: [
+      { key: 'order_placed', label: 'Order Placed', completed: activeStep >= 0 },
+      { key: 'seller_confirmed', label: 'Seller Confirmed', completed: activeStep >= 1 },
+      { key: 'packed', label: 'Packed', completed: activeStep >= 2 },
+      { key: 'out_for_delivery', label: 'Out for Delivery', completed: activeStep >= 3 },
+      { key: 'delivered', label: 'Delivered', completed: activeStep >= 4 }
+    ]
+  };
+};
+
+const buildLinePricing = ({ unitPrice, quantity, rentalDays }) => {
+  const subtotal = Number((unitPrice * quantity * rentalDays).toFixed(2));
+  return { subtotal, unitPrice };
+};
+
+const allocateOrderCharges = (items, totalDeliveryFee, totalGstAmount) => {
+  const subtotalBase = items.reduce((sum, item) => sum + Number(item.pricing.subtotal || 0), 0) || 1;
+  let assignedDelivery = 0;
+  let assignedGst = 0;
+
+  return items.map((item, index) => {
+    const share = Number(item.pricing.subtotal || 0) / subtotalBase;
+    const deliveryFee =
+      index === items.length - 1
+        ? Number((totalDeliveryFee - assignedDelivery).toFixed(2))
+        : Number((totalDeliveryFee * share).toFixed(2));
+    const gstAmount =
+      index === items.length - 1
+        ? Number((totalGstAmount - assignedGst).toFixed(2))
+        : Number((totalGstAmount * share).toFixed(2));
+
+    assignedDelivery = Number((assignedDelivery + deliveryFee).toFixed(2));
+    assignedGst = Number((assignedGst + gstAmount).toFixed(2));
+
+    return {
+      ...item,
+      pricing: {
+        ...item.pricing,
+        deliveryFee,
+        gstAmount,
+        totalAmount: Number((Number(item.pricing.subtotal || 0) + deliveryFee + gstAmount).toFixed(2))
+      }
+    };
+  });
+};
+
+const resolveCheckoutItems = ({ body, productsById, sellersByProduct }) =>
+  (Array.isArray(body.items) && body.items.length > 0
+    ? body.items
+    : [
+        {
+          productid: body.productid,
+          sellerId: body.sellerId,
+          quantity: body.quantity
+        }
+      ])
+    .map((item) => {
+      const product = productsById.get(String(item.productid || '').trim());
+      if (!product) return null;
+
+      const requestedSellerId = String(item.sellerId || '').trim();
+      const matchingSeller =
+        (requestedSellerId && sellersByProduct.get(product.productName)?.find((seller) => seller.sellerId === requestedSellerId)) ||
+        sellersByProduct.get(product.productName)?.[0] ||
+        null;
+
+      return {
+        product,
+        requestedSellerId,
+        seller: matchingSeller,
+        quantity: Math.max(1, Number(item.quantity) || 1)
+      };
+    })
+    .filter(Boolean);
+
 const createRazorpayOrder = async ({ amount, receipt, notes = {} }) => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -161,12 +260,14 @@ const getUserDashboard = async (req, res) => {
     );
     const recentOrders = orders.slice(0, 5).map((order) => ({
       orderReference: order.orderReference,
+      orderGroupReference: order.orderGroupReference || '',
       productName: order.productName,
       sellerName: order.sellerName,
       totalAmount: order.pricing?.totalAmount || 0,
       rentalStartDate: order.rentalStartDate,
       rentalEndDate: order.rentalEndDate,
       orderStatus: order.orderStatus,
+      trackingStatus: normalizeTrackingStatus(order.trackingStatus, order.orderStatus),
       createdAt: order.createdAt
     }));
 
@@ -329,6 +430,7 @@ const getUserOrders = async (req, res) => {
     res.status(200).json({
       orders: orders.map((order) => ({
         orderReference: order.orderReference,
+        orderGroupReference: order.orderGroupReference || '',
         productid: order.productid,
         productName: order.productName,
         category: order.category,
@@ -341,6 +443,10 @@ const getUserOrders = async (req, res) => {
         pricing: order.pricing,
         paymentStatus: order.paymentStatus,
         orderStatus: order.orderStatus,
+        trackingStatus: normalizeTrackingStatus(order.trackingStatus, order.orderStatus),
+        assignedDeliveryBoy: order.assignedDeliveryBoy || { deliveryBoyId: '', name: '', phoneNo: '' },
+        estimatedDeliveryAt: order.estimatedDeliveryAt || null,
+        trackingSnapshot: buildTrackingSnapshot(order),
         createdAt: order.createdAt
       }))
     });
@@ -352,13 +458,17 @@ const getUserOrders = async (req, res) => {
 
 const createCheckoutOrder = async (req, res) => {
   const { userId } = req.params;
-  const { productid, sellerId, quantity = 1, rentalStartDate, rentalEndDate, deliveryAddress = '' } = req.body;
+  const { rentalStartDate, rentalEndDate, deliveryAddress = '' } = req.body;
 
   try {
     const user = await getUserOrThrow(userId);
-    const product = await Product.findOne({ productid: String(productid || '').trim(), status: 'active' });
-    if (!product) {
-      return res.status(404).json({ message: 'Selected product is not available' });
+    const requestedItems = Array.isArray(req.body.items) && req.body.items.length > 0
+      ? req.body.items
+      : [{ productid: req.body.productid, sellerId: req.body.sellerId, quantity: req.body.quantity }];
+    const requestedProductIds = [...new Set(requestedItems.map((item) => String(item?.productid || '').trim()).filter(Boolean))];
+
+    if (requestedProductIds.length === 0) {
+      return res.status(400).json({ message: 'At least one product is required for checkout' });
     }
 
     const startDate = new Date(rentalStartDate);
@@ -368,31 +478,27 @@ const createCheckoutOrder = async (req, res) => {
     }
 
     const rentalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
-    const normalizedQuantity = Math.max(1, Number(quantity) || 1);
-    const seller = await getBestSellerForProduct({ product, sellerId: String(sellerId || '').trim() });
+    const [products, sellers] = await Promise.all([
+      Product.find({ productid: { $in: requestedProductIds }, status: 'active' }),
+      Seller.find({ sellerStatus: 'active' }).sort({ updatedAt: -1 })
+    ]);
+    const productsById = new Map(products.map((product) => [String(product.productid), product]));
+    const sellersByProduct = sellers.reduce((acc, seller) => {
+      (seller.sellerProducts || []).forEach((productName) => {
+        if (!acc.has(productName)) {
+          acc.set(productName, []);
+        }
+        acc.get(productName).push(seller);
+      });
+      return acc;
+    }, new Map());
 
-    const subtotal = Number((product.sellingPrice * normalizedQuantity * rentalDays).toFixed(2));
-    const gstAmount = Number((subtotal * DEFAULT_GST_RATE).toFixed(2));
-    const totalAmount = Number((subtotal + DEFAULT_DELIVERY_FEE + gstAmount).toFixed(2));
-    const amountInPaise = Math.round(totalAmount * 100);
-    const orderReference = `RNT-${userId}-${Date.now()}`;
+    const checkoutItems = resolveCheckoutItems({ body: req.body, productsById, sellersByProduct });
+    if (checkoutItems.length !== requestedItems.length || checkoutItems.some((item) => !item.seller)) {
+      return res.status(400).json({ message: 'One or more selected products are not available for checkout right now' });
+    }
 
-    const razorpayOrder = await createRazorpayOrder({
-      amount: amountInPaise,
-      receipt: orderReference,
-      notes: {
-        userId,
-        productid: product.productid,
-        sellerId: seller.sellerId
-      }
-    });
-
-    const rentalOrder = await RentalOrder.create({
-      orderReference,
-      userId,
-      userName: user.name,
-      phoneNo: user.phoneNo,
-      deliveryAddress: String(deliveryAddress || user.address || '').trim(),
+    const baseItems = checkoutItems.map(({ product, seller, quantity }) => ({
       productid: product.productid,
       productName: product.productName,
       category: product.category || '',
@@ -402,12 +508,42 @@ const createCheckoutOrder = async (req, res) => {
       sellerName: seller.sellerName,
       sellerContact: seller.sellerContact || '',
       sellerAddress: seller.sellerAddress || '',
-      quantity: normalizedQuantity,
+      quantity,
+      rentalDays,
+      pricing: buildLinePricing({
+        unitPrice: Number(product.sellingPrice || 0),
+        quantity,
+        rentalDays
+      })
+    }));
+
+    const subtotal = Number(baseItems.reduce((sum, item) => sum + Number(item.pricing.subtotal || 0), 0).toFixed(2));
+    const gstAmount = Number((subtotal * DEFAULT_GST_RATE).toFixed(2));
+    const totalAmount = Number((subtotal + DEFAULT_DELIVERY_FEE + gstAmount).toFixed(2));
+    const pricedItems = allocateOrderCharges(baseItems, DEFAULT_DELIVERY_FEE, gstAmount);
+    const amountInPaise = Math.round(totalAmount * 100);
+    const sessionReference = `CHK-${userId}-${Date.now()}`;
+
+    const razorpayOrder = await createRazorpayOrder({
+      amount: amountInPaise,
+      receipt: sessionReference,
+      notes: {
+        userId,
+        itemCount: String(pricedItems.length)
+      }
+    });
+
+    const checkoutSession = await RentalCheckoutSession.create({
+      sessionReference,
+      userId,
+      userName: user.name,
+      phoneNo: user.phoneNo,
+      deliveryAddress: String(deliveryAddress || user.address || '').trim(),
       rentalDays,
       rentalStartDate: startDate,
       rentalEndDate: endDate,
+      items: pricedItems,
       pricing: {
-        unitPrice: product.sellingPrice || 0,
         subtotal,
         deliveryFee: DEFAULT_DELIVERY_FEE,
         gstAmount,
@@ -415,7 +551,6 @@ const createCheckoutOrder = async (req, res) => {
       },
       paymentGateway: 'razorpay',
       paymentStatus: 'created',
-      orderStatus: 'created',
       razorpay: {
         orderId: razorpayOrder.id
       }
@@ -424,7 +559,7 @@ const createCheckoutOrder = async (req, res) => {
     res.status(200).json({
       message: 'Checkout order created successfully',
       order: {
-        orderReference: rentalOrder.orderReference,
+        orderReference: checkoutSession.sessionReference,
         razorpayOrderId: razorpayOrder.id,
         amountInPaise,
         totalAmount,
@@ -436,14 +571,14 @@ const createCheckoutOrder = async (req, res) => {
         },
         notes: {
           userId,
-          productName: product.productName
+          itemCount: pricedItems.length
         },
         summary: {
-          productName: product.productName,
-          sellerName: seller.sellerName,
+          itemCount: pricedItems.length,
           rentalDays,
-          deliveryAddress: rentalOrder.deliveryAddress,
-          pricing: rentalOrder.pricing
+          deliveryAddress: checkoutSession.deliveryAddress,
+          pricing: checkoutSession.pricing,
+          items: pricedItems
         }
       }
     });
@@ -459,8 +594,8 @@ const verifyCheckoutPayment = async (req, res) => {
 
   try {
     await getUserOrThrow(userId);
-    const rentalOrder = await RentalOrder.findOne({ orderReference, userId });
-    if (!rentalOrder) {
+    const checkoutSession = await RentalCheckoutSession.findOne({ sessionReference: orderReference, userId });
+    if (!checkoutSession) {
       return res.status(404).json({ message: 'Order not found for payment verification' });
     }
 
@@ -471,48 +606,100 @@ const verifyCheckoutPayment = async (req, res) => {
 
     const generatedSignature = crypto
       .createHmac('sha256', keySecret)
-      .update(`${rentalOrder.razorpay.orderId}|${razorpay_payment_id}`)
+      .update(`${checkoutSession.razorpay.orderId}|${razorpay_payment_id}`)
       .digest('hex');
 
     if (generatedSignature !== razorpay_signature) {
-      rentalOrder.paymentStatus = 'failed';
-      await rentalOrder.save();
+      checkoutSession.paymentStatus = 'failed';
+      await checkoutSession.save();
       return res.status(400).json({ message: 'Payment signature verification failed' });
     }
 
-    rentalOrder.paymentStatus = 'paid';
-    rentalOrder.orderStatus = 'confirmed';
-    rentalOrder.razorpay.paymentId = String(razorpay_payment_id || '').trim();
-    rentalOrder.razorpay.signature = String(razorpay_signature || '').trim();
-    await rentalOrder.save();
+    checkoutSession.paymentStatus = 'paid';
+    checkoutSession.razorpay.paymentId = String(razorpay_payment_id || '').trim();
+    checkoutSession.razorpay.signature = String(razorpay_signature || '').trim();
+    await checkoutSession.save();
 
-    await User.findOneAndUpdate({ userId }, { $inc: { noOfBookings: 1 } });
+    const existingGroupOrders = await RentalOrder.find({ orderGroupReference: checkoutSession.sessionReference });
+    let createdOrders = existingGroupOrders;
+
+    if (existingGroupOrders.length === 0) {
+      const estimatedDeliveryAt = new Date(checkoutSession.rentalStartDate);
+      estimatedDeliveryAt.setHours(estimatedDeliveryAt.getHours() + 6);
+
+      createdOrders = await RentalOrder.insertMany(
+        checkoutSession.items.map((item, index) => {
+          const deliveryBoy = DELIVERY_BOYS[index % DELIVERY_BOYS.length];
+          return {
+            orderReference: `${checkoutSession.sessionReference}-${String(index + 1).padStart(2, '0')}`,
+            orderGroupReference: checkoutSession.sessionReference,
+            userId,
+            userName: checkoutSession.userName,
+            phoneNo: checkoutSession.phoneNo,
+            deliveryAddress: checkoutSession.deliveryAddress,
+            productid: item.productid,
+            productName: item.productName,
+            category: item.category,
+            brand: item.brand,
+            productImage: item.productImage,
+            sellerId: item.sellerId,
+            sellerName: item.sellerName,
+            sellerContact: item.sellerContact,
+            sellerAddress: item.sellerAddress,
+            quantity: item.quantity,
+            rentalDays: checkoutSession.rentalDays,
+            rentalStartDate: checkoutSession.rentalStartDate,
+            rentalEndDate: checkoutSession.rentalEndDate,
+            pricing: item.pricing,
+            paymentGateway: 'razorpay',
+            paymentStatus: 'paid',
+            orderStatus: 'confirmed',
+            trackingStatus: 'seller_confirmed',
+            assignedDeliveryBoy: deliveryBoy,
+            estimatedDeliveryAt,
+            razorpay: {
+              orderId: checkoutSession.razorpay.orderId,
+              paymentId: checkoutSession.razorpay.paymentId,
+              signature: checkoutSession.razorpay.signature
+            }
+          };
+        })
+      );
+    }
+
+    await User.findOneAndUpdate({ userId }, { $inc: { noOfBookings: createdOrders.length } });
 
     const activity = await getOrCreateUserActivity(userId);
-    activity.bookings.push({
-      userName: rentalOrder.userName,
-      mobile: rentalOrder.phoneNo,
-      address: rentalOrder.deliveryAddress,
-      sellerCompany: rentalOrder.sellerName,
-      productPurchased: rentalOrder.productName,
-      dateOfPurchase: new Date().toISOString(),
-      dateOfDelivery: formatDisplayDate(rentalOrder.rentalStartDate),
-      dateOfReturn: formatDisplayDate(rentalOrder.rentalEndDate),
-      deliveryReturnDiff: `${rentalOrder.rentalDays} day(s)`,
-      minCost: rentalOrder.pricing.subtotal,
-      additionalCost: 0,
-      deliveryCost: rentalOrder.pricing.deliveryFee,
-      gstCost: rentalOrder.pricing.gstAmount,
-      totalCost: rentalOrder.pricing.totalAmount
+    createdOrders.forEach((createdOrder) => {
+      activity.bookings.push({
+        userName: createdOrder.userName,
+        mobile: createdOrder.phoneNo,
+        address: createdOrder.deliveryAddress,
+        sellerCompany: createdOrder.sellerName,
+        productPurchased: createdOrder.productName,
+        dateOfPurchase: new Date().toISOString(),
+        dateOfDelivery: formatDisplayDate(createdOrder.rentalStartDate),
+        dateOfReturn: formatDisplayDate(createdOrder.rentalEndDate),
+        deliveryReturnDiff: `${createdOrder.rentalDays} day(s)`,
+        minCost: createdOrder.pricing.subtotal,
+        additionalCost: 0,
+        deliveryCost: createdOrder.pricing.deliveryFee,
+        gstCost: createdOrder.pricing.gstAmount,
+        totalCost: createdOrder.pricing.totalAmount
+      });
     });
     await activity.save();
 
     res.status(200).json({
       message: 'Payment verified successfully',
       order: {
-        orderReference: rentalOrder.orderReference,
-        paymentStatus: rentalOrder.paymentStatus,
-        orderStatus: rentalOrder.orderStatus
+        orderReference: checkoutSession.sessionReference,
+        paymentStatus: 'paid',
+        orderStatus: 'confirmed',
+        createdOrders: createdOrders.map((createdOrder) => ({
+          orderReference: createdOrder.orderReference,
+          productName: createdOrder.productName
+        }))
       }
     });
   } catch (error) {

@@ -427,6 +427,7 @@ const runDatabaseMaintenance = async () => {
     }
 
     const rentalOrdersCollection = mongoose.connection.db.collection('rentalOrders');
+    const rentalCheckoutSessionsCollection = mongoose.connection.db.collection('rentalCheckoutSessions');
     const userActivityCollection = mongoose.connection.db.collection('userActivity');
     const activeUsers = await usersCollection
       .find({ status: { $ne: 'Deleted' } }, { projection: { userId: 1, name: 1, phoneNo: 1, address: 1 } })
@@ -443,6 +444,11 @@ const runDatabaseMaintenance = async () => {
 
     if (activeUsers.length > 0 && activeProducts.length > 0 && activeSellers.length > 0) {
       const seededOrders = [];
+      const deliveryBoys = [
+        { deliveryBoyId: 'DLV001', name: 'Arjun Kumar', phoneNo: '9891001001' },
+        { deliveryBoyId: 'DLV002', name: 'Ravi Malik', phoneNo: '9891001002' },
+        { deliveryBoyId: 'DLV003', name: 'Sonu Verma', phoneNo: '9891001003' }
+      ];
 
       for (let userIndex = 0; userIndex < activeUsers.length; userIndex += 1) {
         const user = activeUsers[userIndex];
@@ -474,10 +480,15 @@ const runDatabaseMaintenance = async () => {
           const gstAmount = Number((subtotal * 0.18).toFixed(2));
           const totalAmount = Number((subtotal + deliveryFee + gstAmount).toFixed(2));
           const orderStatus = orderIndex % 3 === 0 ? 'confirmed' : 'completed';
+          const trackingStatus = orderStatus === 'completed' ? 'delivered' : (orderIndex % 2 === 0 ? 'packed' : 'out_for_delivery');
           const orderReference = `RNT-${user.userId}-${String(orderIndex + 1).padStart(2, '0')}-${createdAt.getTime()}`;
+          const assignedDeliveryBoy = deliveryBoys[(userIndex + orderIndex) % deliveryBoys.length];
+          const estimatedDeliveryAt = new Date(rentalStartDate);
+          estimatedDeliveryAt.setHours(estimatedDeliveryAt.getHours() + 6);
 
           seededOrders.push({
             orderReference,
+            orderGroupReference: orderReference,
             userId: user.userId,
             userName: user.name || 'User',
             phoneNo: user.phoneNo || '',
@@ -505,6 +516,9 @@ const runDatabaseMaintenance = async () => {
             paymentGateway: 'razorpay',
             paymentStatus: 'paid',
             orderStatus,
+            trackingStatus,
+            assignedDeliveryBoy,
+            estimatedDeliveryAt,
             razorpay: {
               orderId: `order_seed_${userIndex + 1}_${orderIndex + 1}`,
               paymentId: `pay_seed_${userIndex + 1}_${orderIndex + 1}`,
@@ -521,6 +535,52 @@ const runDatabaseMaintenance = async () => {
         console.log(`Seeded ${seededOrders.length} rental orders in rentalOrders collection`);
       }
     }
+
+    const existingRentalOrders = await rentalOrdersCollection
+      .find({}, { projection: { _id: 1, orderReference: 1, orderGroupReference: 1, orderStatus: 1, trackingStatus: 1, assignedDeliveryBoy: 1, estimatedDeliveryAt: 1, rentalStartDate: 1 } })
+      .toArray();
+
+    const rentalOrderOps = existingRentalOrders
+      .map((order, index) => {
+        const next = {};
+        if (!order.orderGroupReference) next.orderGroupReference = order.orderReference;
+        if (!order.trackingStatus) {
+          next.trackingStatus =
+            order.orderStatus === 'completed' ? 'delivered' :
+            order.orderStatus === 'confirmed' ? 'seller_confirmed' :
+            order.orderStatus === 'cancelled' ? 'cancelled' :
+            'order_placed';
+        }
+        if (!order.assignedDeliveryBoy?.deliveryBoyId) {
+          next.assignedDeliveryBoy = [
+            { deliveryBoyId: 'DLV001', name: 'Arjun Kumar', phoneNo: '9891001001' },
+            { deliveryBoyId: 'DLV002', name: 'Ravi Malik', phoneNo: '9891001002' },
+            { deliveryBoyId: 'DLV003', name: 'Sonu Verma', phoneNo: '9891001003' }
+          ][index % 3];
+        }
+        if (!order.estimatedDeliveryAt && order.rentalStartDate) {
+          const estimatedDeliveryAt = new Date(order.rentalStartDate);
+          estimatedDeliveryAt.setHours(estimatedDeliveryAt.getHours() + 6);
+          next.estimatedDeliveryAt = estimatedDeliveryAt;
+        }
+
+        if (Object.keys(next).length === 0) return null;
+
+        return {
+          updateOne: {
+            filter: { _id: order._id },
+            update: { $set: next }
+          }
+        };
+      })
+      .filter(Boolean);
+
+    if (rentalOrderOps.length > 0) {
+      await rentalOrdersCollection.bulkWrite(rentalOrderOps);
+      console.log(`Normalized ${rentalOrderOps.length} rental orders with tracking metadata`);
+    }
+
+    await rentalCheckoutSessionsCollection.deleteMany({ paymentStatus: 'failed' });
 
     const seededPaidOrders = await rentalOrdersCollection
       .find({ paymentStatus: 'paid' }, { projection: { userId: 1, userName: 1, phoneNo: 1, deliveryAddress: 1, sellerName: 1, productName: 1, rentalDays: 1, rentalStartDate: 1, rentalEndDate: 1, pricing: 1, createdAt: 1 } })

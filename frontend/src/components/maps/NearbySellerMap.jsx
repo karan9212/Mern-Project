@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import L from 'leaflet';
-import { Box, Chip, Stack, Typography } from '@mui/material';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { Box, Button, Chip, Stack, Typography } from '@mui/material';
+import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import PanelCard from '../common/PanelCard';
 
@@ -86,13 +86,43 @@ function NearbySellerMap({ userLocation, sellers = [], title = 'Nearby Sellers',
               position={[seller.sellerLocationCordinates.lat, seller.sellerLocationCordinates.lng]}
               icon={sellerIcon}
             >
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <Stack spacing={0.15}>
+                  <Typography fontWeight={700} variant="caption">{seller.sellerName}</Typography>
+                  <Typography variant="caption">
+                    {typeof seller.distanceKm === 'number' ? `${seller.distanceKm} km away` : 'Tap for details'}
+                  </Typography>
+                </Stack>
+              </Tooltip>
               <Popup>
-                <Stack spacing={0.5}>
+                <Stack spacing={0.9} minWidth={220}>
                   <Typography fontWeight={700}>{seller.sellerName}</Typography>
                   <Typography variant="body2">{seller.sellerAddress}</Typography>
                   <Typography variant="body2">
                     Distance: {typeof seller.distanceKm === 'number' ? `${seller.distanceKm} km` : 'N/A'}
                   </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Button
+                      component="a"
+                      href={`tel:${seller.sellerContact}`}
+                      variant="contained"
+                      size="small"
+                      fullWidth
+                    >
+                      Contact Seller
+                    </Button>
+                    <Button
+                      component="a"
+                      href={`https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${seller.sellerLocationCordinates.lat},${seller.sellerLocationCordinates.lng}&travelmode=driving`}
+                      target="_blank"
+                      rel="noreferrer"
+                      variant="outlined"
+                      size="small"
+                      fullWidth
+                    >
+                      Get Directions
+                    </Button>
+                  </Stack>
                 </Stack>
               </Popup>
             </Marker>

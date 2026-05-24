@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const RentalOrderSchema = new mongoose.Schema(
   {
     orderReference: { type: String, required: true, unique: true, trim: true },
+    orderGroupReference: { type: String, default: '', trim: true, index: true },
     userId: { type: String, required: true, trim: true, index: true },
     userName: { type: String, default: '', trim: true },
     phoneNo: { type: String, default: '', trim: true },
@@ -40,6 +41,18 @@ const RentalOrderSchema = new mongoose.Schema(
       default: 'created',
       index: true
     },
+    trackingStatus: {
+      type: String,
+      enum: ['order_placed', 'seller_confirmed', 'packed', 'out_for_delivery', 'delivered', 'cancelled'],
+      default: 'order_placed',
+      index: true
+    },
+    assignedDeliveryBoy: {
+      deliveryBoyId: { type: String, default: '', trim: true },
+      name: { type: String, default: '', trim: true },
+      phoneNo: { type: String, default: '', trim: true }
+    },
+    estimatedDeliveryAt: { type: Date, default: null },
     razorpay: {
       orderId: { type: String, default: '', trim: true, index: true },
       paymentId: { type: String, default: '', trim: true },

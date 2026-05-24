@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded';
 import {
   Box,
   Button,
@@ -7,6 +9,7 @@ import {
   CardContent,
   Chip,
   Grid,
+  IconButton,
   MenuItem,
   Stack,
   TextField,
@@ -14,11 +17,20 @@ import {
 } from '@mui/material';
 import API from '../../../../api/api';
 
-function UserCatalogSection({ userId, selectedProduct, onSelectProduct, showToast }) {
+function UserCatalogSection({
+  userId,
+  selectedProduct,
+  cartItems = [],
+  onSelectProduct,
+  onAddToCart,
+  onUpdateCartItemQuantity,
+  showToast
+}) {
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
+  const [quantityDrafts, setQuantityDrafts] = useState({});
   const [catalogData, setCatalogData] = useState({
     products: [],
     filters: {
@@ -74,6 +86,11 @@ function UserCatalogSection({ userId, selectedProduct, onSelectProduct, showToas
     setCategory('');
   };
 
+  const getDraftQuantity = (product) =>
+    quantityDrafts[product.productid] ||
+    cartItems.find((item) => item.productid === product.productid)?.quantity ||
+    1;
+
   return (
     <Grid container spacing={2.5}>
       <Grid size={{ xs: 12 }}>
@@ -113,8 +130,30 @@ function UserCatalogSection({ userId, selectedProduct, onSelectProduct, showToas
         </Card>
       </Grid>
 
+      {cartItems.length > 0 ? (
+        <Grid size={{ xs: 12 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid', borderColor: 'primary.main' }}>
+            <CardContent>
+              <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}>
+                <Box>
+                  <Typography variant="h6" fontWeight={700}>Cart Ready</Typography>
+                  <Typography color="text.secondary">
+                    {cartItems.length} product(s) added. Continue shopping or move to checkout.
+                  </Typography>
+                </Box>
+                <Button variant="contained" onClick={() => navigate('/user-portal/checkout')}>
+                  Go To Checkout
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+      ) : null}
+
       {catalogData.products.map((product) => {
         const isSelected = selectedProduct?.productid === product.productid;
+        const productInCart = cartItems.find((item) => item.productid === product.productid);
+        const productQuantity = getDraftQuantity(product);
 
         return (
           <Grid key={product.productid} size={{ xs: 12, md: 6, xl: 4 }}>
@@ -155,15 +194,70 @@ function UserCatalogSection({ userId, selectedProduct, onSelectProduct, showToas
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     <Chip size="small" label={`${product.activeSellerCount || 0} active sellers`} />
                     <Chip size="small" label={product.subcategory || 'General'} />
+                    {productInCart ? <Chip size="small" label={`In cart: ${productInCart.quantity}`} color="warning" /> : null}
                     {typeof product.nearestDistanceKm === 'number' ? (
                       <Chip size="small" label={`From ${product.nearestDistanceKm} km`} color="success" variant="outlined" />
                     ) : null}
                   </Stack>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}
+                  >
+                    <Typography variant="body2" fontWeight={700}>
+                      Quantity
+                    </Typography>
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          setQuantityDrafts((prev) => ({
+                            ...prev,
+                            [product.productid]: Math.max(1, getDraftQuantity(product) - 1)
+                          }))
+                        }
+                      >
+                        <RemoveRoundedIcon fontSize="small" />
+                      </IconButton>
+                      <Typography minWidth={24} textAlign="center" fontWeight={700}>
+                        {productQuantity}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          setQuantityDrafts((prev) => ({
+                            ...prev,
+                            [product.productid]: getDraftQuantity(product) + 1
+                          }))
+                        }
+                      >
+                        <AddRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  </Stack>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mt: 'auto' }}>
+                    <Button
+                      variant={productInCart ? 'outlined' : 'contained'}
+                      color={productInCart ? 'warning' : 'primary'}
+                      fullWidth
+                      onClick={() => {
+                        const quantityToAdd = Math.max(1, Number(productQuantity) || 1);
+                        onAddToCart(product, quantityToAdd);
+                        showToast(`${product.productName} added to cart.`, 'success');
+                      }}
+                    >
+                      {productInCart ? 'Add More To Cart' : 'Add To Cart'}
+                    </Button>
                     <Button
                       variant="contained"
                       fullWidth
                       onClick={() => {
+                        if (!productInCart) {
+                          onAddToCart(product, Math.max(1, Number(productQuantity) || 1));
+                        } else if (productInCart.quantity !== productQuantity) {
+                          onUpdateCartItemQuantity(product.productid, productQuantity);
+                        }
                         onSelectProduct(product);
                         navigate('/user-portal/checkout');
                       }}
