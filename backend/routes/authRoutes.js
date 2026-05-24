@@ -40,6 +40,15 @@ const {
   createSupportRequest,
   updateEmployeeDocuments
 } = require('../controllers/employeePortalController');
+const {
+  getUserDashboard,
+  getUserCatalog,
+  logUserSearch,
+  getNearbySellers,
+  getUserOrders,
+  createCheckoutOrder,
+  verifyCheckoutPayment
+} = require('../controllers/userPortalController');
 
 const router = express.Router();
 
@@ -65,6 +74,13 @@ router.post('/sellers', upsertSeller);
 router.get('/teams', getAllTeams);
 router.post('/teams', createTeamMember);
 router.put('/teams/:employeeId', updateTeamMember);
+router.get('/user-portal/:userId/dashboard', getUserDashboard);
+router.get('/user-portal/:userId/catalog', getUserCatalog);
+router.post('/user-portal/:userId/search', logUserSearch);
+router.get('/user-portal/:userId/sellers', getNearbySellers);
+router.get('/user-portal/:userId/orders', getUserOrders);
+router.post('/user-portal/:userId/checkout/create-order', createCheckoutOrder);
+router.post('/user-portal/:userId/checkout/verify-payment', verifyCheckoutPayment);
 router.get('/employee-portal/announcements', getAnnouncements);
 router.get('/employee-portal/:employeeId/dashboard', getEmployeeDashboard);
 router.get('/employee-portal/:employeeId/product-sales', getEmployeeProductSales);

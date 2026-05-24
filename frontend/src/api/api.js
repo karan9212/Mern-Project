@@ -1,11 +1,20 @@
 import axios from 'axios';
 import { refreshEmployeeActivity } from '../utils/employeeSession';
 
+const resolveApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+    return 'http://localhost:5000/api/auth';
+  }
+
+  const configuredBaseUrl = String(process.env.REACT_APP_API_URL || '').trim();
+  return configuredBaseUrl ? `${configuredBaseUrl}/api/auth` : '/api/auth';
+};
+
 const API = axios.create({
-  baseURL: `${process.env.REACT_APP_API_URL}/api/auth`
+  baseURL: resolveApiBaseUrl()
 }); // Backend URL
 
-console.log("API URL:", process.env.REACT_APP_API_URL);
+console.log('API URL:', API.defaults.baseURL);
 
 // Add token in headers if available
 API.interceptors.request.use((req) => {

@@ -18,11 +18,6 @@ const logUserActivity = async (req, res) => {
 
     if (search) {
       userActivity.searches.push(search);
-
-      // Keep only latest 10 searches
-      if (userActivity.searches.length > 10) {
-        userActivity.searches = userActivity.searches.slice(-10);
-      }
     }
 
     await userActivity.save();

@@ -126,7 +126,7 @@ function Login() {
       }
 
       showToast('Login successful.', 'success');
-      setTimeout(() => navigate('/dashboard'), 300);
+      setTimeout(() => navigate(formData.loginAs === 'user' ? '/user-portal' : '/dashboard'), 300);
     } catch (err) {
       showToast(err.response?.data?.message || 'Login failed.', 'error');
     }

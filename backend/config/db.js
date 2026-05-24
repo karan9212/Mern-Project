@@ -426,6 +426,192 @@ const runDatabaseMaintenance = async () => {
       }
     }
 
+    const rentalOrdersCollection = mongoose.connection.db.collection('rentalOrders');
+    const userActivityCollection = mongoose.connection.db.collection('userActivity');
+    const activeUsers = await usersCollection
+      .find({ status: { $ne: 'Deleted' } }, { projection: { userId: 1, name: 1, phoneNo: 1, address: 1 } })
+      .sort({ userId: 1 })
+      .toArray();
+    const activeProducts = await productsCollection
+      .find({ status: 'active' }, { projection: { productid: 1, productName: 1, category: 1, brand: 1, sellingPrice: 1, productImages: 1 } })
+      .limit(20)
+      .toArray();
+    const activeSellers = await sellersCollection
+      .find({ sellerStatus: 'active' }, { projection: { sellerId: 1, sellerName: 1, sellerContact: 1, sellerAddress: 1, sellerProducts: 1 } })
+      .limit(20)
+      .toArray();
+
+    if (activeUsers.length > 0 && activeProducts.length > 0 && activeSellers.length > 0) {
+      const seededOrders = [];
+
+      for (let userIndex = 0; userIndex < activeUsers.length; userIndex += 1) {
+        const user = activeUsers[userIndex];
+        const existingPaidOrders = await rentalOrdersCollection.countDocuments({ userId: user.userId, paymentStatus: 'paid' });
+        if (existingPaidOrders > 0) {
+          continue;
+        }
+
+        const ordersForUser = 3 + (userIndex % 3);
+
+        for (let orderIndex = 0; orderIndex < ordersForUser; orderIndex += 1) {
+          const product = activeProducts[(userIndex * 2 + orderIndex) % activeProducts.length];
+          const matchedSeller =
+            activeSellers.find((seller) => Array.isArray(seller.sellerProducts) && seller.sellerProducts.includes(product.productName)) ||
+            activeSellers[(userIndex + orderIndex) % activeSellers.length];
+          const rentalDays = 2 + ((userIndex + orderIndex) % 5);
+          const quantity = 1 + ((userIndex + orderIndex) % 2);
+          const createdAt = new Date();
+          createdAt.setDate(createdAt.getDate() - (userIndex * 4 + orderIndex * 3 + 2));
+          createdAt.setHours(10 + (orderIndex % 5), 15, 0, 0);
+
+          const rentalStartDate = new Date(createdAt);
+          rentalStartDate.setDate(rentalStartDate.getDate() + 1);
+          const rentalEndDate = new Date(rentalStartDate);
+          rentalEndDate.setDate(rentalEndDate.getDate() + rentalDays - 1);
+
+          const subtotal = Number(((product.sellingPrice || 0) * quantity * rentalDays).toFixed(2));
+          const deliveryFee = 99;
+          const gstAmount = Number((subtotal * 0.18).toFixed(2));
+          const totalAmount = Number((subtotal + deliveryFee + gstAmount).toFixed(2));
+          const orderStatus = orderIndex % 3 === 0 ? 'confirmed' : 'completed';
+          const orderReference = `RNT-${user.userId}-${String(orderIndex + 1).padStart(2, '0')}-${createdAt.getTime()}`;
+
+          seededOrders.push({
+            orderReference,
+            userId: user.userId,
+            userName: user.name || 'User',
+            phoneNo: user.phoneNo || '',
+            deliveryAddress: user.address || `Sample delivery address for ${user.name || user.userId}`,
+            productid: product.productid,
+            productName: product.productName,
+            category: product.category || '',
+            brand: product.brand || '',
+            productImage: Array.isArray(product.productImages) ? product.productImages[0] || '' : '',
+            sellerId: matchedSeller.sellerId,
+            sellerName: matchedSeller.sellerName || '',
+            sellerContact: matchedSeller.sellerContact || '',
+            sellerAddress: matchedSeller.sellerAddress || '',
+            quantity,
+            rentalDays,
+            rentalStartDate,
+            rentalEndDate,
+            pricing: {
+              unitPrice: product.sellingPrice || 0,
+              subtotal,
+              deliveryFee,
+              gstAmount,
+              totalAmount
+            },
+            paymentGateway: 'razorpay',
+            paymentStatus: 'paid',
+            orderStatus,
+            razorpay: {
+              orderId: `order_seed_${userIndex + 1}_${orderIndex + 1}`,
+              paymentId: `pay_seed_${userIndex + 1}_${orderIndex + 1}`,
+              signature: `seed_signature_${userIndex + 1}_${orderIndex + 1}`
+            },
+            createdAt,
+            updatedAt: createdAt
+          });
+        }
+      }
+
+      if (seededOrders.length > 0) {
+        await rentalOrdersCollection.insertMany(seededOrders);
+        console.log(`Seeded ${seededOrders.length} rental orders in rentalOrders collection`);
+      }
+    }
+
+    const seededPaidOrders = await rentalOrdersCollection
+      .find({ paymentStatus: 'paid' }, { projection: { userId: 1, userName: 1, phoneNo: 1, deliveryAddress: 1, sellerName: 1, productName: 1, rentalDays: 1, rentalStartDate: 1, rentalEndDate: 1, pricing: 1, createdAt: 1 } })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    if (activeUsers.length > 0 && activeProducts.length > 0) {
+      const activityOps = [];
+
+      for (const user of activeUsers) {
+        const existingActivity = await userActivityCollection.findOne({ userId: user.userId });
+        const userOrders = seededPaidOrders.filter((order) => order.userId === user.userId);
+        const bookings = userOrders.slice(0, 5).map((order) => ({
+          userName: order.userName || user.name || 'User',
+          mobile: order.phoneNo || user.phoneNo || '',
+          address: order.deliveryAddress || user.address || '',
+          sellerCompany: order.sellerName || '',
+          productPurchased: order.productName || '',
+          dateOfPurchase: order.createdAt ? new Date(order.createdAt).toISOString() : new Date().toISOString(),
+          dateOfDelivery: order.rentalStartDate ? new Date(order.rentalStartDate).toLocaleDateString('en-IN') : '',
+          dateOfReturn: order.rentalEndDate ? new Date(order.rentalEndDate).toLocaleDateString('en-IN') : '',
+          deliveryReturnDiff: `${order.rentalDays || 0} day(s)`,
+          minCost: Number(order.pricing?.subtotal || 0),
+          additionalCost: 0,
+          deliveryCost: Number(order.pricing?.deliveryFee || 0),
+          gstCost: Number(order.pricing?.gstAmount || 0),
+          totalCost: Number(order.pricing?.totalAmount || 0)
+        }));
+
+        const searchTerms = [];
+        const searchSeedCount = 8 + (user.userId.charCodeAt(user.userId.length - 1) % 4);
+        for (let index = 0; index < searchSeedCount; index += 1) {
+          const product = activeProducts[(index + user.userId.length) % activeProducts.length];
+          searchTerms.push({
+            productSearched: index % 3 === 0 ? product.category : product.productName,
+            dateOfSearch: formatDateKey(new Date(Date.now() - index * 86400000))
+          });
+        }
+
+        if (!existingActivity) {
+          activityOps.push({
+            insertOne: {
+              document: {
+                userId: user.userId,
+                bookings,
+                searches: searchTerms
+              }
+            }
+          });
+        } else {
+          const update = {};
+          if (!Array.isArray(existingActivity.bookings) || existingActivity.bookings.length === 0) {
+            update.bookings = bookings;
+          }
+          if (!Array.isArray(existingActivity.searches) || existingActivity.searches.length === 0) {
+            update.searches = searchTerms;
+          }
+
+          if (Object.keys(update).length > 0) {
+            activityOps.push({
+              updateOne: {
+                filter: { _id: existingActivity._id },
+                update: { $set: update }
+              }
+            });
+          }
+        }
+      }
+
+      if (activityOps.length > 0) {
+        await userActivityCollection.bulkWrite(activityOps);
+        console.log(`Seeded or completed userActivity for ${activityOps.length} user records`);
+      }
+    }
+
+    const paidOrderCounts = await rentalOrdersCollection.aggregate([
+      { $match: { paymentStatus: 'paid' } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } }
+    ]).toArray();
+
+    if (paidOrderCounts.length > 0) {
+      await Promise.all(
+        paidOrderCounts.map((item) =>
+          usersCollection.updateOne(
+            { userId: item._id },
+            { $set: { noOfBookings: item.count } }
+          )
+        )
+      );
+    }
+
     const productSalesCollection = mongoose.connection.db.collection('productSales');
     const productSalesCount = await productSalesCollection.countDocuments();
     if (productSalesCount === 0) {

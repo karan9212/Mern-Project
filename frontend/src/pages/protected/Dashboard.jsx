@@ -211,6 +211,12 @@ function Dashboard() {
   const isSubAdminEmployee = isEmployee && currentEmployeeRole === 'subAdmin';
   const isElevatedEmployee = isAdminEmployee || isSubAdminEmployee;
 
+  useEffect(() => {
+    if (loginAs === 'user') {
+      navigate('/user-portal', { replace: true });
+    }
+  }, [loginAs, navigate]);
+
   const navItems = useMemo(() => {
     if (isAdminEmployee) {
       return [
@@ -875,6 +881,10 @@ function Dashboard() {
 
   const ActiveComponent = sectionRenderer[activeSection] || sectionRenderer.overview;
   const activeLabel = navItems.find((item) => item.key === activeSection)?.label || 'Overview';
+
+  if (loginAs === 'user') {
+    return null;
+  }
 
   return (
     <>

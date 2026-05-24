@@ -11,6 +11,7 @@ const Product = lazy(() => import('./pages/Product'));
 const Seller = lazy(() => import('./pages/Seller'));
 const ManageHub = lazy(() => import('./pages/ManageHub'));
 const Dashboard = lazy(() => import('./pages/protected/Dashboard'));
+const UserPortal = lazy(() => import('./pages/protected/user/UserPortal'));
 const AllUserData = lazy(() => import('./pages/protected/AllUserData'));
 const AllEmployeeData = lazy(() => import('./pages/protected/AllEmployeeData'));
 
@@ -39,6 +40,13 @@ function App() {
             <Route path="/dashboard/tasks" element={<Dashboard />} />
             <Route path="/dashboard/reports" element={<Dashboard />} />
             <Route path="/dashboard/settings" element={<Dashboard />} />
+            <Route path="/user-portal" element={<UserPortal />} />
+            <Route path="/user-portal/catalog" element={<UserPortal />} />
+            <Route path="/user-portal/sellers" element={<UserPortal />} />
+            <Route path="/user-portal/orders" element={<UserPortal />} />
+            <Route path="/user-portal/checkout" element={<UserPortal />} />
+            <Route path="/user-portal/profile" element={<UserPortal />} />
+            <Route path="/user-portal/settings" element={<UserPortal />} />
             <Route path="/profile" element={<Navigate to="/dashboard/profile" replace />} />
             <Route path="/team" element={<Navigate to="/dashboard/team" replace />} />
             <Route path="/tasks" element={<Navigate to="/dashboard/tasks" replace />} />
