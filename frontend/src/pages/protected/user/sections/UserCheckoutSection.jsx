@@ -16,6 +16,9 @@ import {
   TextField,
   Typography
 } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import API from '../../../../api/api';
 import { calculateDistanceKm, DEFAULT_USER_LOCATION } from '../../../../utils/geo';
 import { loadRazorpayCheckout } from '../../../../utils/loadRazorpay';
@@ -314,24 +317,27 @@ function UserCheckoutSection({
           <CardContent>
             <Typography variant="h6" fontWeight={700} gutterBottom>Delivery & Payment</Typography>
             <Stack spacing={1.5}>
-              <TextField
-                name="rentalStartDate"
-                label="Rental Start Date"
-                type="date"
-                value={checkoutForm.rentalStartDate}
-                onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
-              <TextField
-                name="rentalEndDate"
-                label="Rental End Date"
-                type="date"
-                value={checkoutForm.rentalEndDate}
-                onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Rental Start Date"
+                  value={checkoutForm.rentalStartDate ? new Date(checkoutForm.rentalStartDate) : null}
+                  onChange={(newValue) => {
+                    const val = newValue ? new Date(newValue).toISOString().split('T')[0] : '';
+                    setCheckoutForm((prev) => ({ ...prev, rentalStartDate: val }));
+                  }}
+                  renderInput={(params) => <TextField fullWidth {...params} />}
+                />
+
+                <DatePicker
+                  label="Rental End Date"
+                  value={checkoutForm.rentalEndDate ? new Date(checkoutForm.rentalEndDate) : null}
+                  onChange={(newValue) => {
+                    const val = newValue ? new Date(newValue).toISOString().split('T')[0] : '';
+                    setCheckoutForm((prev) => ({ ...prev, rentalEndDate: val }));
+                  }}
+                  renderInput={(params) => <TextField fullWidth {...params} />}
+                />
+              </LocalizationProvider>
               <TextField
                 name="deliveryAddress"
                 label="Delivery Address"
