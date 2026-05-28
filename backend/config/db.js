@@ -66,6 +66,7 @@ const normalizeEmployeeRole = (employeeType) => {
 const runDatabaseMaintenance = async () => {
   // Cleanup legacy unique indexes that are no longer part of current schema.
   // These indexes can cause duplicate-key errors on null values during insert.
+  debugger;
   const usersCollection = mongoose.connection.db.collection('users');
     await usersCollection.updateMany(
       {},
