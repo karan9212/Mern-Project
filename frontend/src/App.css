@@ -1,7 +1,9 @@
 :root {
-  --theme-bg-color: rgba(16 18 27 / 40%);
+  --color-primary: #091020;
+  --color-secondary: #fdb115;
+  --color-primary-light: #0f1a34;
+  --color-primary-dark: #080d1a;
   --border-color: rgba(113 119 144 / 25%);
-  --theme-color: #f9fafb;
   --inactive-color: rgb(113 119 144 / 78%);
   --body-font: "Poppins", sans-serif;
   --hover-menu-bg: rgba(12 15 25 / 30%);
@@ -18,9 +20,9 @@
 
 .light-mode {
   --theme-bg-color: rgb(255 255 255 / 31%);
-  --theme-color: #3c3a3a;
-  --inactive-color: #333333;
-  --button-inactive: #3c3a3a;
+  --theme-color: #091020;
+  --inactive-color: #182748;
+  --button-inactive: #091020;
   --search-bg: rgb(255 255 255 / 31%);
   --dropdown-bg: #f7f7f7;
   --overlay-bg: rgb(255 255 255 / 30%);

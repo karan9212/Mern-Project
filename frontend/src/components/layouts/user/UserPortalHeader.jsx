@@ -25,12 +25,7 @@ function UserPortalHeader({ drawerWidth, collapsedDrawerWidth, desktopCollapsed,
           <MenuRoundedIcon />
         </IconButton>
         <Stack spacing={0.25} sx={{ flexGrow: 1 }}>
-          <Typography variant="h6" fontWeight={800}>
-            Rent Portal
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Browse, book and track rental orders from nearby sellers.
-          </Typography>
+          <img src="/assets/images/logo/yellow-white-logo.png" alt="Logo" style={{ width: 95 }} />
         </Stack>
         <Box>
           <Stack direction="row" spacing={1.5} alignItems="center">

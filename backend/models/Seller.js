@@ -5,6 +5,7 @@ const SellerSchema = new mongoose.Schema(
   {
     sellerName: { type: String, required: true, trim: true },
     sellerId: { type: String, required: true, trim: true, unique: true },
+    companyEmail: { type: String, required: true, trim: true, lowercase: true },
     sellerCategory: { type: [String], default: [] },
     sellerDescription: { type: String, default: '', trim: true },
     sellerStatus: {

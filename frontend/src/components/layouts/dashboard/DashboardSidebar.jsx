@@ -5,8 +5,7 @@ import {
   List,
   ListItemButton,
   ListItemIcon,
-  ListItemText,
-  Typography
+  ListItemText
 } from '@mui/material';
 import StatusTimerCard from '../../session/StatusTimerCard';
 
@@ -28,13 +27,9 @@ function DashboardSidebar({
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ p: desktopCollapsed ? 2 : 3, pb: 2 }}>
         {desktopCollapsed ? (
-          <Typography variant="h5" fontWeight={800} textAlign="center">
-            H
-          </Typography>
+          <img src="/assets/images/logo/logoYellow.png" alt="Logo" style={{ width: 36 }} />
         ) : (
-          <Typography variant="h5" fontWeight={800}>
-            HRMS
-          </Typography>
+          <img src="/assets/images/logo/yellow-white-logo.png" alt="Logo" style={{ width: 120 }} />
         )}
       </Box>
       <Divider />

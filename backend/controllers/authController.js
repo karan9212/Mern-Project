@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const Team = require('../models/Team');
 const Aadhaar = require('../models/Aadhaar');
+const Seller = require('../models/Seller');
+const { DeliveryBoy } = require('../models/DeliveryBoy');
 const sendMobileOTP = require('../utils/sendMobileOTP');
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -38,13 +40,66 @@ const getAadhaarByNumber = async (aadhaarNumber) => {
   return Aadhaar.findOne({ aadhaarNumber: String(aadhaarNumber || '').trim() });
 };
 
+const maskPhone = (phoneNo = '') => {
+  const cleanPhone = String(phoneNo || '').trim();
+  if (cleanPhone.length < 4) return cleanPhone;
+  return `******${cleanPhone.slice(-4)}`;
+};
+
+const findSellerByLogin = async (sellerId, phoneNo) =>
+  Seller.findOne({
+    sellerId: String(sellerId || '').trim(),
+    sellerContact: String(phoneNo || '').trim()
+  });
+
+const findDeliveryBoyByLogin = async (deliveryBoyId, phoneNo) =>
+  DeliveryBoy.findOne({
+    deliveryBoyId: String(deliveryBoyId || '').trim(),
+    phoneNo: String(phoneNo || '').trim()
+  });
+
 const sendMobileOtp = async (req, res) => {
-  const { mobile } = req.body;
+  const { mobile, phoneNo, loginAs = 'user', loginId } = req.body;
+  const inputPhoneNo = String(phoneNo || mobile || '').trim();
 
   try {
+    if (!/^\d{10}$/.test(inputPhoneNo)) {
+      return res.status(400).json({ message: 'Valid 10-digit mobile number is required' });
+    }
+
+    if (loginAs === 'seller') {
+      if (!loginId) {
+        return res.status(400).json({ message: 'Seller ID is required' });
+      }
+
+      const seller = await findSellerByLogin(loginId, inputPhoneNo);
+      if (!seller) {
+        return res.status(400).json({ message: 'Seller ID and phone number do not match our records' });
+      }
+
+      if (seller.sellerStatus === 'deleted') {
+        return res.status(403).json({ message: 'This seller account is deleted' });
+      }
+    }
+
+    if (loginAs === 'delivery') {
+      if (!loginId) {
+        return res.status(400).json({ message: 'Delivery ID is required' });
+      }
+
+      const deliveryBoy = await findDeliveryBoyByLogin(loginId, inputPhoneNo);
+      if (!deliveryBoy) {
+        return res.status(400).json({ message: 'Delivery ID and phone number do not match our records' });
+      }
+
+      if (deliveryBoy.status === 'deleted') {
+        return res.status(403).json({ message: 'This delivery account is deleted' });
+      }
+    }
+
     const otp = generateOTP();
-    otpStore[mobile] = otp;
-    await sendMobileOTP(mobile, otp);
+    otpStore[inputPhoneNo] = otp;
+    await sendMobileOTP(inputPhoneNo, otp);
     res.json({ message: 'OTP sent to mobile number' });
   } catch (error) {
     console.error(error);
@@ -142,13 +197,53 @@ const registerUser = async (req, res) => {
 };
 
 const loginUser = async (req, res) => {
-  const { mobile, phoneNo, aadhaar, aadhaarNumber, loginAs = 'user' } = req.body;
+  const { mobile, phoneNo, aadhaar, aadhaarNumber, loginAs = 'user', loginId } = req.body;
   const inputPhoneNo = String(phoneNo || mobile || '').trim();
   const inputAadhaar = String(aadhaarNumber || aadhaar || '').trim();
 
   try {
-    if (!inputPhoneNo && !inputAadhaar) {
+    if (['seller', 'delivery'].includes(loginAs) && (!loginId || !inputPhoneNo)) {
+      return res.status(400).json({ message: 'Login ID and phone number are required' });
+    }
+
+    if (!['seller', 'delivery'].includes(loginAs) && !inputPhoneNo && !inputAadhaar) {
       return res.status(400).json({ message: 'Phone number or Aadhaar is required' });
+    }
+
+    if (loginAs === 'seller') {
+      const seller = await findSellerByLogin(loginId, inputPhoneNo);
+      if (!seller) return res.status(400).json({ message: 'Seller does not exist' });
+      if (seller.sellerStatus === 'deleted') {
+        return res.status(403).json({ message: 'This seller account is deleted' });
+      }
+
+      return res.status(200).json({
+        message: 'Seller logged in successfully',
+        loginAs,
+        user: {
+          name: seller.sellerName,
+          userId: seller.sellerId,
+          profileImage: ''
+        }
+      });
+    }
+
+    if (loginAs === 'delivery') {
+      const deliveryBoy = await findDeliveryBoyByLogin(loginId, inputPhoneNo);
+      if (!deliveryBoy) return res.status(400).json({ message: 'Delivery user does not exist' });
+      if (deliveryBoy.status === 'deleted') {
+        return res.status(403).json({ message: 'This delivery account is deleted' });
+      }
+
+      return res.status(200).json({
+        message: 'Delivery user logged in successfully',
+        loginAs,
+        user: {
+          name: deliveryBoy.deliveryBoyName,
+          userId: deliveryBoy.deliveryBoyId,
+          profileImage: deliveryBoy.profileImage || ''
+        }
+      });
     }
 
     const targetModel = loginAs === 'employee' ? Team : User;
@@ -208,6 +303,47 @@ const loginUser = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+const recoverPortalAccess = async (req, res) => {
+  const { loginAs, companyEmail } = req.body;
+  const cleanEmail = String(companyEmail || '').trim().toLowerCase();
+
+  if (!['seller', 'delivery'].includes(loginAs)) {
+    return res.status(400).json({ message: 'Recovery is available only for seller and delivery portals' });
+  }
+
+  if (!cleanEmail) {
+    return res.status(400).json({ message: 'Company email is required' });
+  }
+
+  try {
+    const target =
+      loginAs === 'seller'
+        ? await Seller.findOne({ companyEmail: cleanEmail })
+        : await DeliveryBoy.findOne({ companyEmail: cleanEmail });
+
+    if (!target) {
+      return res.status(404).json({ message: 'No account is registered with this company email' });
+    }
+
+    const targetPhone = loginAs === 'seller' ? target.sellerContact : target.phoneNo;
+    const targetLoginId = loginAs === 'seller' ? target.sellerId : target.deliveryBoyId;
+
+    const otp = generateOTP();
+    otpStore[targetPhone] = otp;
+    await sendMobileOTP(targetPhone, otp);
+
+    return res.status(200).json({
+      message: 'Recovery OTP sent to the registered phone number',
+      loginId: targetLoginId,
+      maskedPhone: maskPhone(targetPhone),
+      phoneNo: targetPhone
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Failed to start account recovery' });
   }
 };
 
@@ -512,5 +648,6 @@ module.exports = {
   getAllUsers,
   updateUser,
   getAadhaarData,
-  upsertAadhaarData
+  upsertAadhaarData,
+  recoverPortalAccess
 };

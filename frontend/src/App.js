@@ -9,6 +9,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Aadhaar = lazy(() => import('./pages/Aadhaar'));
 const Product = lazy(() => import('./pages/Product'));
 const Seller = lazy(() => import('./pages/Seller'));
+const DeliveryManager = lazy(() => import('./pages/DeliveryManager'));
 const ManageHub = lazy(() => import('./pages/ManageHub'));
 const Dashboard = lazy(() => import('./pages/protected/Dashboard'));
 const UserPortal = lazy(() => import('./pages/protected/user/UserPortal'));
@@ -27,6 +28,7 @@ function App() {
             <Route path="/aadhaar" element={<Aadhaar />} />
             <Route path="/products" element={<Product />} />
             <Route path="/sellers" element={<Seller />} />
+            <Route path="/deliveries" element={<DeliveryManager />} />
             <Route path="/manage-hub" element={<ManageHub />} />
             <Route path="/" element={<Login />} />
             <Route path="/login" element={<Login />} />

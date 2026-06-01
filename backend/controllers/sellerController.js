@@ -17,7 +17,7 @@ const getSellers = async (req, res) => {
   try {
     const sellers = await Seller.find({})
       .select(
-        'sellerName sellerId sellerCategory sellerDescription sellerStatus sellerAddress sellerContact sellerGstIn sellerProducts sellerLocationCordinates'
+        'sellerName sellerId companyEmail sellerCategory sellerDescription sellerStatus sellerAddress sellerContact sellerGstIn sellerProducts sellerLocationCordinates'
       )
       .sort({ updatedAt: -1, _id: -1 });
 
@@ -44,6 +44,7 @@ const upsertSeller = async (req, res) => {
   const {
     sellerName,
     sellerId,
+    companyEmail,
     sellerCategory,
     sellerDescription,
     sellerStatus,
@@ -59,8 +60,18 @@ const upsertSeller = async (req, res) => {
   const categories = normalizeStringArray(sellerCategory);
   const productNames = normalizeStringArray(sellerProducts);
 
-  if (!sellerName || !cleanSellerId) {
-    return res.status(400).json({ message: 'sellerName and sellerId are required' });
+  const cleanCompanyEmail = String(companyEmail || '').trim().toLowerCase();
+
+  if (!sellerName || !cleanSellerId || !cleanCompanyEmail) {
+    return res.status(400).json({ message: 'sellerName, sellerId and companyEmail are required' });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanCompanyEmail)) {
+    return res.status(400).json({ message: 'companyEmail must be a valid email address' });
+  }
+
+  if (!/^\d{10}$/.test(String(sellerContact || '').trim())) {
+    return res.status(400).json({ message: 'sellerContact must be a valid 10-digit number' });
   }
 
   if (!SELLER_STATUS_VALUES.includes(cleanSellerStatus)) {
@@ -92,6 +103,7 @@ const upsertSeller = async (req, res) => {
     const payload = {
       sellerName: String(sellerName).trim(),
       sellerId: cleanSellerId,
+      companyEmail: cleanCompanyEmail,
       sellerCategory: categories,
       sellerDescription: String(sellerDescription || '').trim(),
       sellerStatus: cleanSellerStatus,
@@ -101,6 +113,14 @@ const upsertSeller = async (req, res) => {
       sellerProducts: productNames,
       sellerLocationCordinates: { lat, lng }
     };
+
+    const duplicate = await Seller.findOne({
+      sellerId: { $ne: cleanSellerId },
+      $or: [{ sellerContact: String(sellerContact || '').trim() }, { companyEmail: cleanCompanyEmail }]
+    });
+    if (duplicate) {
+      return res.status(400).json({ message: 'Another seller already uses this contact number or company email' });
+    }
 
     const existing = await Seller.findOne({ sellerId: cleanSellerId });
     if (existing) {

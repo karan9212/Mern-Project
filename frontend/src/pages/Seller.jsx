@@ -36,6 +36,7 @@ function Seller() {
   const [form, setForm] = useState({
     sellerName: '',
     sellerId: '',
+    companyEmail: '',
     sellerCategory: [],
     sellerDescription: '',
     sellerStatus: 'active',
@@ -89,6 +90,7 @@ function Seller() {
     setForm({
       sellerName: '',
       sellerId: '',
+      companyEmail: '',
       sellerCategory: [],
       sellerDescription: '',
       sellerStatus: 'active',
@@ -106,6 +108,7 @@ function Seller() {
     setForm({
       sellerName: seller.sellerName || '',
       sellerId: seller.sellerId || '',
+      companyEmail: seller.companyEmail || '',
       sellerCategory: Array.isArray(seller.sellerCategory) ? seller.sellerCategory : [],
       sellerDescription: seller.sellerDescription || '',
       sellerStatus: normalizeSellerStatus(seller.sellerStatus || 'active'),
@@ -149,6 +152,7 @@ function Seller() {
     const payload = {
       sellerName: form.sellerName.trim(),
       sellerId: form.sellerId.trim(),
+      companyEmail: form.companyEmail.trim().toLowerCase(),
       sellerCategory: form.sellerCategory,
       sellerDescription: form.sellerDescription.trim(),
       sellerStatus: form.sellerStatus,
@@ -162,13 +166,18 @@ function Seller() {
       }
     };
 
-    if (!payload.sellerName || !payload.sellerId) {
-      showToast('sellerName and sellerId are required.', 'warning');
+    if (!payload.sellerName || !payload.sellerId || !payload.companyEmail) {
+      showToast('sellerName, sellerId and companyEmail are required.', 'warning');
       return;
     }
 
     if (!/^\d{10}$/.test(payload.sellerContact)) {
       showToast('sellerContact must be a valid 10-digit number.', 'warning');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.companyEmail)) {
+      showToast('Please enter a valid company email.', 'warning');
       return;
     }
 
@@ -227,9 +236,10 @@ function Seller() {
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
                     <TextField label="Seller Name" name="sellerName" value={form.sellerName} onChange={handleChange} required fullWidth />
                     <TextField label="Seller ID" name="sellerId" value={form.sellerId} onChange={handleChange} required fullWidth />
+                    <TextField label="Company Email" name="companyEmail" value={form.companyEmail} onChange={handleChange} required fullWidth />
                     <TextField label="Seller Contact" name="sellerContact" value={form.sellerContact} onChange={handleChange} required fullWidth />
-                    <TextField label="Seller GSTIN" name="sellerGstIn" value={form.sellerGstIn} onChange={handleChange} fullWidth />
                   </Stack>
+                  <TextField label="Seller GSTIN" name="sellerGstIn" value={form.sellerGstIn} onChange={handleChange} fullWidth />
 
                   <Autocomplete
                     multiple
@@ -299,6 +309,7 @@ function Seller() {
                       <TableRow>
                         <TableCell>Seller Name</TableCell>
                         <TableCell>Seller ID</TableCell>
+                        <TableCell>Company Email</TableCell>
                         <TableCell>Status</TableCell>
                         <TableCell>Contact</TableCell>
                         <TableCell>Categories</TableCell>
@@ -324,6 +335,7 @@ function Seller() {
                         >
                           <TableCell>{seller.sellerName || 'N/A'}</TableCell>
                           <TableCell>{seller.sellerId || 'N/A'}</TableCell>
+                          <TableCell>{seller.companyEmail || 'N/A'}</TableCell>
                           <TableCell>{getSellerStatusMeta(seller.sellerStatus).label}</TableCell>
                           <TableCell>{seller.sellerContact || 'N/A'}</TableCell>
                           <TableCell>{Array.isArray(seller.sellerCategory) ? seller.sellerCategory.join(', ') : 'N/A'}</TableCell>

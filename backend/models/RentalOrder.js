@@ -37,13 +37,24 @@ const RentalOrderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ['created', 'confirmed', 'completed', 'cancelled'],
+      enum: ['created', 'confirmed', 'running', 'completed', 'cancelled'],
       default: 'created',
       index: true
     },
     trackingStatus: {
       type: String,
-      enum: ['order_placed', 'seller_confirmed', 'packed', 'out_for_delivery', 'delivered', 'cancelled'],
+      enum: [
+        'order_placed',
+        'seller_confirmed',
+        'getting_ready',
+        'packed',
+        'out_for_delivery',
+        'delivered',
+        'return_in_transit',
+        'returned_to_seller',
+        'completed',
+        'cancelled'
+      ],
       default: 'order_placed',
       index: true
     },

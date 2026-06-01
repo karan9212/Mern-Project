@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Autocomplete,
   Box,
@@ -38,6 +39,7 @@ function TeamSection({
   schoolClasses,
   schoolBoards
 }) {
+  const navigate = useNavigate();
   const canAssignAdmin = currentEmployeeRole === 'admin';
 
   return (
@@ -45,9 +47,19 @@ function TeamSection({
       <Grid size={{ xs: 12, lg: 5 }}>
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
-              {editingEmployeeId ? 'Update Employee' : 'Create Employee'}
-            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2} mb={2}>
+              <Typography variant="h6" fontWeight={700}>
+                {editingEmployeeId ? 'Update Employee' : 'Create Employee'}
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" variant="outlined" onClick={() => navigate('/sellers')}>
+                  Add Seller
+                </Button>
+                <Button size="small" variant="outlined" onClick={() => navigate('/deliveries')}>
+                  Add Delivery Guy
+                </Button>
+              </Stack>
+            </Stack>
             <Box component="form" onSubmit={handleSaveEmployee}>
               <Stack spacing={2}>
                 <TextField label="Name" name="name" value={employeeForm.name} onChange={handleEmployeeInputChange} required fullWidth />

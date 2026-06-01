@@ -66,7 +66,6 @@ const normalizeEmployeeRole = (employeeType) => {
 const runDatabaseMaintenance = async () => {
   // Cleanup legacy unique indexes that are no longer part of current schema.
   // These indexes can cause duplicate-key errors on null values during insert.
-  debugger;
   const usersCollection = mongoose.connection.db.collection('users');
     await usersCollection.updateMany(
       {},
@@ -350,7 +349,7 @@ const runDatabaseMaintenance = async () => {
 
     const sellersCollection = mongoose.connection.db.collection('sellers');
     const sellerStatusDocs = await sellersCollection
-      .find({}, { projection: { _id: 1, sellerStatus: 1, sellerLocationCordinates: 1 } })
+      .find({}, { projection: { _id: 1, sellerId: 1, companyEmail: 1, sellerStatus: 1, sellerLocationCordinates: 1 } })
       .toArray();
     const sellerNormalizationOps = sellerStatusDocs.reduce((ops, seller) => {
       const normalizedStatus = normalizeSellerStatus(seller.sellerStatus);
@@ -360,8 +359,10 @@ const runDatabaseMaintenance = async () => {
       const needsStatusUpdate = normalizedStatus !== seller.sellerStatus;
       const needsCoordUpdate =
         seller.sellerLocationCordinates?.lat !== lat || seller.sellerLocationCordinates?.lng !== lng;
+      const nextCompanyEmail =
+        seller.companyEmail || `${String(seller.sellerId || 'seller').toLowerCase()}@helpwiser.in`;
 
-      if (!needsStatusUpdate && !needsCoordUpdate) {
+      if (!needsStatusUpdate && !needsCoordUpdate && seller.companyEmail) {
         return ops;
       }
 
@@ -370,6 +371,7 @@ const runDatabaseMaintenance = async () => {
           filter: { _id: seller._id },
           update: {
             $set: {
+              companyEmail: nextCompanyEmail,
               sellerStatus: normalizedStatus,
               ...(hasNumericCoords ? { sellerLocationCordinates: { lat, lng } } : {})
             }
@@ -410,6 +412,7 @@ const runDatabaseMaintenance = async () => {
         sellersToInsert.push({
           sellerName: `Delhi Seller ${i}`,
           sellerId,
+          companyEmail: `${sellerId.toLowerCase()}@helpwiser.in`,
           sellerCategory: [...new Set([categoryA, categoryB])],
           sellerDescription: `Seeded seller ${i} handling ${categoryA} and ${categoryB}.`,
           sellerStatus: statuses[(i - 1) % statuses.length],
@@ -425,6 +428,72 @@ const runDatabaseMaintenance = async () => {
         await sellersCollection.insertMany(sellersToInsert);
         console.log(`Seeded ${sellersToInsert.length} sellers in sellers collection`);
       }
+    }
+
+    const deliveryBoysCollection = mongoose.connection.db.collection('deliveryBoys');
+    await deliveryBoysCollection.updateMany(
+      { companyEmail: { $exists: false } },
+      [
+        {
+          $set: {
+            companyEmail: {
+              $concat: [{ $toLower: '$deliveryBoyId' }, '@helpwiser.in']
+            }
+          }
+        }
+      ]
+    );
+
+    const deliveryBoyCount = await deliveryBoysCollection.countDocuments();
+    if (deliveryBoyCount === 0) {
+      await deliveryBoysCollection.insertMany([
+        {
+          deliveryBoyName: 'Arjun Kumar',
+          deliveryBoyId: 'DLV001',
+          phoneNo: '9891001001',
+          companyEmail: 'dlv001@helpwiser.in',
+          status: 'active',
+          address: 'Rohini, Delhi',
+          profileImage: ''
+        },
+        {
+          deliveryBoyName: 'Ravi Malik',
+          deliveryBoyId: 'DLV002',
+          phoneNo: '9891001002',
+          companyEmail: 'dlv002@helpwiser.in',
+          status: 'active',
+          address: 'Dwarka, Delhi',
+          profileImage: ''
+        },
+        {
+          deliveryBoyName: 'Sonu Verma',
+          deliveryBoyId: 'DLV003',
+          phoneNo: '9891001003',
+          companyEmail: 'dlv003@helpwiser.in',
+          status: 'active',
+          address: 'Pitampura, Delhi',
+          profileImage: ''
+        },
+        {
+          deliveryBoyName: 'Nitin Yadav',
+          deliveryBoyId: 'DLV004',
+          phoneNo: '9891001004',
+          companyEmail: 'dlv004@helpwiser.in',
+          status: 'active',
+          address: 'Laxmi Nagar, Delhi',
+          profileImage: ''
+        },
+        {
+          deliveryBoyName: 'Harsh Tyagi',
+          deliveryBoyId: 'DLV005',
+          phoneNo: '9891001005',
+          companyEmail: 'dlv005@helpwiser.in',
+          status: 'inactive',
+          address: 'Mayur Vihar, Delhi',
+          profileImage: ''
+        }
+      ]);
+      console.log('Seeded deliveryBoys collection with default records');
     }
 
     const rentalOrdersCollection = mongoose.connection.db.collection('rentalOrders');
@@ -480,8 +549,15 @@ const runDatabaseMaintenance = async () => {
           const deliveryFee = 99;
           const gstAmount = Number((subtotal * 0.18).toFixed(2));
           const totalAmount = Number((subtotal + deliveryFee + gstAmount).toFixed(2));
-          const orderStatus = orderIndex % 3 === 0 ? 'confirmed' : 'completed';
-          const trackingStatus = orderStatus === 'completed' ? 'delivered' : (orderIndex % 2 === 0 ? 'packed' : 'out_for_delivery');
+          const seededFlow = [
+            { orderStatus: 'created', trackingStatus: 'order_placed' },
+            { orderStatus: 'confirmed', trackingStatus: 'seller_confirmed' },
+            { orderStatus: 'confirmed', trackingStatus: 'getting_ready' },
+            { orderStatus: 'running', trackingStatus: 'packed' },
+            { orderStatus: 'running', trackingStatus: 'delivered' }
+          ][orderIndex % 5];
+          const orderStatus = seededFlow.orderStatus;
+          const trackingStatus = seededFlow.trackingStatus;
           const orderReference = `RNT-${user.userId}-${String(orderIndex + 1).padStart(2, '0')}-${createdAt.getTime()}`;
           const assignedDeliveryBoy = deliveryBoys[(userIndex + orderIndex) % deliveryBoys.length];
           const estimatedDeliveryAt = new Date(rentalStartDate);
@@ -757,24 +833,29 @@ const connectDB = async () => {
     await mongoose.connect(process.env.MONGO_URI, {
       family: 4,
       serverSelectionTimeoutMS: 30000,
-      socketTimeoutMS: 60000
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10
     });
-    console.log('MongoDB Connected');
+
+    console.log('✅ MongoDB Connected');
+
     mongoose.connection.on('error', (error) => {
       console.error(`MongoDB connection error: ${error.message}`);
     });
+
     mongoose.connection.on('disconnected', () => {
       console.warn('MongoDB disconnected');
     });
+
+    try {
+      await runDatabaseMaintenance();
+    } catch (maintenanceError) {
+      console.error(`MongoDB maintenance failed: ${maintenanceError.message}`);
+    }
+
   } catch (error) {
     console.error(`MongoDB initial connection failed: ${error.message}`);
     process.exit(1);
-  }
-
-  try {
-    await runDatabaseMaintenance();
-  } catch (error) {
-    console.error(`MongoDB maintenance warning: ${error.message}`);
   }
 };
 

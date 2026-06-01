@@ -5,16 +5,11 @@ const RentalOrder = require('../models/RentalOrder');
 const Seller = require('../models/Seller');
 const User = require('../models/User');
 const UserActivity = require('../models/UserActivity');
+const { DeliveryBoy } = require('../models/DeliveryBoy');
 
 const DEFAULT_DELIVERY_FEE = 99;
 const DEFAULT_GST_RATE = 0.18;
 const DEFAULT_SERVICE_LOCATION = { lat: 28.6139, lng: 77.209 };
-const DELIVERY_BOYS = [
-  { deliveryBoyId: 'DLV001', name: 'Arjun Kumar', phoneNo: '9891001001' },
-  { deliveryBoyId: 'DLV002', name: 'Ravi Malik', phoneNo: '9891001002' },
-  { deliveryBoyId: 'DLV003', name: 'Sonu Verma', phoneNo: '9891001003' }
-];
-
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -113,20 +108,45 @@ const normalizeTrackingStatus = (trackingStatus, orderStatus) => {
 
 const buildTrackingSnapshot = (order) => {
   const trackingStatus = normalizeTrackingStatus(order.trackingStatus, order.orderStatus);
-  const stepSequence = ['order_placed', 'seller_confirmed', 'packed', 'out_for_delivery', 'delivered'];
-  const activeStep = trackingStatus === 'cancelled' ? -1 : stepSequence.indexOf(trackingStatus);
+  const stepSequence = [
+    'order_placed',
+    'seller_confirmed',
+    'getting_ready',
+    'packed',
+    'out_for_delivery',
+    'delivered',
+    'return_in_transit',
+    'returned_to_seller',
+    'completed'
+  ];
+  const statusIndexMap = {
+    order_placed: 0,
+    seller_confirmed: 1,
+    getting_ready: 2,
+    packed: 3,
+    out_for_delivery: 4,
+    delivered: 5,
+    return_in_transit: 6,
+    returned_to_seller: 7,
+    completed: 8
+  };
+  const activeStep = trackingStatus === 'cancelled' ? -1 : (statusIndexMap[trackingStatus] ?? -1);
 
   return {
     currentStatus: trackingStatus,
     activeStep,
-    isDelivered: trackingStatus === 'delivered',
+    isDelivered: ['delivered', 'completed'].includes(trackingStatus),
     isCancelled: trackingStatus === 'cancelled',
     steps: [
       { key: 'order_placed', label: 'Order Placed', completed: activeStep >= 0 },
       { key: 'seller_confirmed', label: 'Seller Confirmed', completed: activeStep >= 1 },
-      { key: 'packed', label: 'Packed', completed: activeStep >= 2 },
-      { key: 'out_for_delivery', label: 'Out for Delivery', completed: activeStep >= 3 },
-      { key: 'delivered', label: 'Delivered', completed: activeStep >= 4 }
+      { key: 'getting_ready', label: 'Getting Ready', completed: activeStep >= 2 },
+      { key: 'packed', label: 'Packed', completed: activeStep >= 3 },
+      { key: 'out_for_delivery', label: 'Out for Delivery', completed: activeStep >= 4 },
+      { key: 'delivered', label: 'Delivered To Customer', completed: activeStep >= 5 },
+      { key: 'return_in_transit', label: 'Return In Transit', completed: activeStep >= 6 },
+      { key: 'returned_to_seller', label: 'Returned To Seller', completed: activeStep >= 7 },
+      { key: 'completed', label: 'Completed', completed: activeStep >= 8 }
     ]
   };
 };
@@ -624,12 +644,22 @@ const verifyCheckoutPayment = async (req, res) => {
     let createdOrders = existingGroupOrders;
 
     if (existingGroupOrders.length === 0) {
+      const activeDeliveryBoys = await DeliveryBoy.find({ status: { $in: ['active', 'inactive', 'on_hold'] } })
+        .select('deliveryBoyId deliveryBoyName phoneNo')
+        .sort({ deliveryBoyId: 1 });
       const estimatedDeliveryAt = new Date(checkoutSession.rentalStartDate);
       estimatedDeliveryAt.setHours(estimatedDeliveryAt.getHours() + 6);
 
       createdOrders = await RentalOrder.insertMany(
         checkoutSession.items.map((item, index) => {
-          const deliveryBoy = DELIVERY_BOYS[index % DELIVERY_BOYS.length];
+          const deliveryBoyDoc = activeDeliveryBoys[index % Math.max(activeDeliveryBoys.length, 1)];
+          const deliveryBoy = deliveryBoyDoc
+            ? {
+                deliveryBoyId: deliveryBoyDoc.deliveryBoyId,
+                name: deliveryBoyDoc.deliveryBoyName,
+                phoneNo: deliveryBoyDoc.phoneNo
+              }
+            : { deliveryBoyId: '', name: '', phoneNo: '' };
           return {
             orderReference: `${checkoutSession.sessionReference}-${String(index + 1).padStart(2, '0')}`,
             orderGroupReference: checkoutSession.sessionReference,
@@ -653,8 +683,8 @@ const verifyCheckoutPayment = async (req, res) => {
             pricing: item.pricing,
             paymentGateway: 'razorpay',
             paymentStatus: 'paid',
-            orderStatus: 'confirmed',
-            trackingStatus: 'seller_confirmed',
+            orderStatus: 'created',
+            trackingStatus: 'order_placed',
             assignedDeliveryBoy: deliveryBoy,
             estimatedDeliveryAt,
             razorpay: {

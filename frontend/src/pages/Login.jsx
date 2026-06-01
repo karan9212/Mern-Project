@@ -6,6 +6,10 @@ import {
   Card,
   CardContent,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   FormControlLabel,
   Radio,
@@ -23,9 +27,12 @@ function Login() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     loginAs: 'user',
+    loginId: '',
     mobile: '',
     mobileOtp: ''
   });
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
 
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
   const [mobileVerified, setMobileVerified] = useState(false);
@@ -39,6 +46,7 @@ function Login() {
       setFormData((prev) => ({
         ...prev,
         loginAs: value,
+        loginId: '',
         mobileOtp: ''
       }));
       setMobileOtpSent(false);
@@ -52,6 +60,7 @@ function Login() {
   const handleResetLogin = () => {
     setFormData({
       loginAs: 'user',
+      loginId: '',
       mobile: '',
       mobileOtp: ''
     });
@@ -63,7 +72,11 @@ function Login() {
   // ------------------- Mobile OTP --------------------
   const sendMobileOtp = async () => {
     try {
-      await API.post('/sendMobileOtp', { mobile: formData.mobile });
+      await API.post('/sendMobileOtp', {
+        mobile: formData.mobile,
+        loginAs: formData.loginAs,
+        loginId: formData.loginId
+      });
       setMobileOtpSent(true);
       showToast('OTP sent to mobile.', 'success');
     } catch (err) {
@@ -89,8 +102,15 @@ function Login() {
     e.preventDefault();
 
     const mobile = formData.mobile.trim();
+    const loginId = formData.loginId.trim();
+    const isPortalLogin = ['seller', 'delivery'].includes(formData.loginAs);
     if (!mobile) {
       showToast('Mobile number is required.');
+      return;
+    }
+
+    if (isPortalLogin && !loginId) {
+      showToast(formData.loginAs === 'seller' ? 'Seller ID is required.' : 'Delivery ID is required.');
       return;
     }
 
@@ -107,7 +127,8 @@ function Login() {
     try {
       const res = await API.post('/loginUser', {
         mobile: formData.mobile,
-        loginAs: formData.loginAs
+        loginAs: formData.loginAs,
+        loginId: formData.loginId
       });
 
       // Save name and userId in localStorage
@@ -126,11 +147,53 @@ function Login() {
       }
 
       showToast('Login successful.', 'success');
-      setTimeout(() => navigate(formData.loginAs === 'user' ? '/user-portal' : '/dashboard'), 300);
+      const nextRoute =
+        formData.loginAs === 'user'
+          ? '/user-portal'
+          : formData.loginAs === 'employee'
+            ? '/dashboard'
+            : formData.loginAs === 'seller'
+              ? '/seller-portal'
+              : '/delivery-portal';
+      setTimeout(() => navigate(nextRoute), 300);
     } catch (err) {
       showToast(err.response?.data?.message || 'Login failed.', 'error');
     }
   };
+
+  const handleRecoverPortalAccess = async () => {
+    if (!recoveryEmail.trim()) {
+      showToast('Please enter the registered company email.', 'warning');
+      return;
+    }
+
+    try {
+      const response = await API.post('/recoverPortalAccess', {
+        loginAs: formData.loginAs,
+        companyEmail: recoveryEmail.trim().toLowerCase()
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        loginId: response.data?.loginId || prev.loginId,
+        mobile: response.data?.phoneNo || prev.mobile,
+        mobileOtp: ''
+      }));
+      setMobileOtpSent(true);
+      setMobileVerified(false);
+      setForgotPasswordOpen(false);
+      setRecoveryEmail('');
+      showToast(
+        `${response.data?.message || 'Recovery OTP sent.'}${response.data?.loginId ? ` Login ID: ${response.data.loginId}.` : ''} ${response.data?.maskedPhone ? `Phone: ${response.data.maskedPhone}.` : ''}`,
+        'success'
+      );
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to recover portal access.', 'error');
+    }
+  };
+
+  const isPortalLogin = ['seller', 'delivery'].includes(formData.loginAs);
+  const loginIdLabel = formData.loginAs === 'seller' ? 'Seller ID' : 'Delivery ID';
 
   return (
     <Box
@@ -161,8 +224,21 @@ function Login() {
                   <RadioGroup row name="loginAs" value={formData.loginAs} onChange={handleChange}>
                     <FormControlLabel value="user" control={<Radio />} label="User" />
                     <FormControlLabel value="employee" control={<Radio />} label="Employee" />
+                    <FormControlLabel value="seller" control={<Radio />} label="Seller" />
+                    <FormControlLabel value="delivery" control={<Radio />} label="Delivery" />
                   </RadioGroup>
                 </FormControl>
+                {isPortalLogin ? (
+                  <TextField
+                    name="loginId"
+                    label={loginIdLabel}
+                    onChange={handleChange}
+                    value={formData.loginId}
+                    required
+                    disabled={mobileVerified}
+                    fullWidth
+                  />
+                ) : null}
                 <TextField
                   name="mobile"
                   label="Mobile Number"
@@ -210,12 +286,20 @@ function Login() {
                   Reset
                 </Button>
 
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  Don't have an account?{' '}
-                  <Button type="button" variant="text" onClick={() => navigate('/register')} sx={{ p: 0, minWidth: 0 }}>
-                    Go to Registration
+                {isPortalLogin ? (
+                  <Button type="button" variant="text" onClick={() => setForgotPasswordOpen(true)} sx={{ alignSelf: 'flex-start', px: 0 }}>
+                    Forgot Password / Recover Access
                   </Button>
-                </Typography>
+                ) : null}
+
+                {!isPortalLogin ? (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Don't have an account?{' '}
+                    <Button type="button" variant="text" onClick={() => navigate('/register')} sx={{ p: 0, minWidth: 0 }}>
+                      Go to Registration
+                    </Button>
+                  </Typography>
+                ) : null}
                 <Typography variant="body2">
                   Need manager tools?{' '}
                   <Button type="button" variant="text" onClick={() => navigate('/manage-hub')} sx={{ p: 0, minWidth: 0 }}>
@@ -233,6 +317,29 @@ function Login() {
         severity={toast.severity}
         onClose={closeToast}
       />
+      <Dialog open={forgotPasswordOpen} onClose={() => setForgotPasswordOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Recover Seller / Delivery Access</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Enter the company email registered with the portal. We will verify it and send an OTP to the registered phone number.
+            </Typography>
+            <TextField
+              label="Registered Company Email"
+              type="email"
+              value={recoveryEmail}
+              onChange={(event) => setRecoveryEmail(event.target.value)}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setForgotPasswordOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleRecoverPortalAccess}>
+            Recover Access
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

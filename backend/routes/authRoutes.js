@@ -13,7 +13,8 @@ const {
   getAllUsers,
   updateUser,
   getAadhaarData,
-  upsertAadhaarData
+  upsertAadhaarData,
+  recoverPortalAccess
 } = require('../controllers/authController');
 const {
   getAllTeams,
@@ -28,6 +29,18 @@ const {
   getSellers,
   upsertSeller
 } = require('../controllers/sellerController');
+const {
+  getDeliveryBoys,
+  upsertDeliveryBoy
+} = require('../controllers/deliveryController');
+const {
+  getSellerPortalDashboard,
+  updateSellerOrderStatus
+} = require('../controllers/sellerPortalController');
+const {
+  getDeliveryPortalDashboard,
+  updateDeliveryOrderStatus
+} = require('../controllers/deliveryPortalController');
 const {
   getEmployeeDashboard,
   getEmployeeProductSales,
@@ -59,6 +72,7 @@ router.post('/sendMobileOtp', sendMobileOtp);
 router.post('/verifyMobileOtp', verifyMobileOtp);
 router.post('/sendAadhaarOtp', sendAadhaarOtp);
 router.post('/verifyAadhaarOtp', verifyAadhaarOtp);
+router.post('/recoverPortalAccess', recoverPortalAccess);
 router.get('/user/:userId', getUserProfile);
 router.post('/updateProfileImage', updateProfileImage);
 router.post('/logoutUser', logoutUser);
@@ -71,6 +85,8 @@ router.get('/products', getProducts);
 router.post('/products', upsertProduct);
 router.get('/sellers', getSellers);
 router.post('/sellers', upsertSeller);
+router.get('/delivery-boys', getDeliveryBoys);
+router.post('/delivery-boys', upsertDeliveryBoy);
 router.get('/teams', getAllTeams);
 router.post('/teams', createTeamMember);
 router.put('/teams/:employeeId', updateTeamMember);
@@ -81,6 +97,10 @@ router.get('/user-portal/:userId/sellers', getNearbySellers);
 router.get('/user-portal/:userId/orders', getUserOrders);
 router.post('/user-portal/:userId/checkout/create-order', createCheckoutOrder);
 router.post('/user-portal/:userId/checkout/verify-payment', verifyCheckoutPayment);
+router.get('/seller-portal/:sellerId/dashboard', getSellerPortalDashboard);
+router.put('/seller-portal/:sellerId/orders/:orderReference/status', updateSellerOrderStatus);
+router.get('/delivery-portal/:deliveryBoyId/dashboard', getDeliveryPortalDashboard);
+router.put('/delivery-portal/:deliveryBoyId/orders/:orderReference/status', updateDeliveryOrderStatus);
 router.get('/employee-portal/announcements', getAnnouncements);
 router.get('/employee-portal/:employeeId/dashboard', getEmployeeDashboard);
 router.get('/employee-portal/:employeeId/product-sales', getEmployeeProductSales);
