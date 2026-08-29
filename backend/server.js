@@ -13,18 +13,22 @@ const app = express();
 // FIXED CORS
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://mern-project-rose-two.vercel.app'
+  'https://mern-project-rose-two.vercel.app',
+  'https://rentist.co.in',
+  'https://www.rentist.co.in',
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS not allowed'));
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
+    return callback(null, true);
   },
-  credentials: true
+  credentials: true // Enable this if you send cookies or authorization headers
 }));
 
 app.use(express.json({ limit: '15mb' }));
