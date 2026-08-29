@@ -16,7 +16,6 @@ const allowedOrigins = [
   'https://mern-project-rose-two.vercel.app',
   'https://rentist.co.in',
   'https://www.rentist.co.in',
-  
 ];
 
 app.use(cors({
