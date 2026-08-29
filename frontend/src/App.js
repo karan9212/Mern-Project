@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { ThemeModeProvider } from './context/ThemeModeContext';
 import PageLoader from './components/common/PageLoader';
 import './App.css';
@@ -64,6 +65,7 @@ function App() {
           </Routes>
         </Suspense>
       </Router>
+      <SpeedInsights />
     </ThemeModeProvider>
   );
 }
