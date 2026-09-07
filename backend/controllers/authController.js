@@ -67,42 +67,35 @@ const sendMobileOtp = async (req, res) => {
       return res.status(400).json({ message: 'Valid 10-digit mobile number is required' });
     }
 
+    // --- Validation logic for Seller/Delivery remains same ---
     if (loginAs === 'seller') {
-      if (!loginId) {
-        return res.status(400).json({ message: 'Seller ID is required' });
-      }
-
+      if (!loginId) return res.status(400).json({ message: 'Seller ID is required' });
       const seller = await findSellerByLogin(loginId, inputPhoneNo);
-      if (!seller) {
-        return res.status(400).json({ message: 'Seller ID and phone number do not match our records' });
-      }
-
-      if (seller.sellerStatus === 'deleted') {
-        return res.status(403).json({ message: 'This seller account is deleted' });
-      }
+      if (!seller) return res.status(400).json({ message: 'Seller ID and phone number do not match' });
+      if (seller.sellerStatus === 'deleted') return res.status(403).json({ message: 'This seller account is deleted' });
     }
 
     if (loginAs === 'delivery') {
-      if (!loginId) {
-        return res.status(400).json({ message: 'Delivery ID is required' });
-      }
-
+      if (!loginId) return res.status(400).json({ message: 'Delivery ID is required' });
       const deliveryBoy = await findDeliveryBoyByLogin(loginId, inputPhoneNo);
-      if (!deliveryBoy) {
-        return res.status(400).json({ message: 'Delivery ID and phone number do not match our records' });
-      }
-
-      if (deliveryBoy.status === 'deleted') {
-        return res.status(403).json({ message: 'This delivery account is deleted' });
-      }
+      if (!deliveryBoy) return res.status(400).json({ message: 'Delivery ID and phone number do not match' });
+      if (deliveryBoy.status === 'deleted') return res.status(403).json({ message: 'This delivery account is deleted' });
     }
 
+    // --- MiniMoth Integration Start ---
     const otp = generateOTP();
-    otpStore[inputPhoneNo] = otp;
-    await sendMobileOTP(inputPhoneNo, otp);
-    res.json({ message: 'OTP sent to mobile number' });
+    
+    // Call the utility and check for success
+    const isSent = await sendMobileOTP(inputPhoneNo, otp);
+
+    if (isSent) {
+      otpStore[inputPhoneNo] = otp; // Only store if message actually sent
+      return res.json({ message: 'OTP sent to mobile number' });
+    } else {
+      return res.status(500).json({ message: 'Failed to deliver OTP via MiniMoth. Check balance/API Key.' });
+    }
   } catch (error) {
-    console.error(error);
+    console.error("Controller Error:", error);
     res.status(500).json({ message: 'Failed to send OTP' });
   }
 };
@@ -125,9 +118,14 @@ const sendAadhaarOtp = async (req, res) => {
 
   try {
     const otp = generateOTP();
-    otpStore[aadhaar] = otp;
-    await sendMobileOTP(user.mobile, otp);
-    res.json({ message: 'OTP sent to Aadhaar linked mobile', mobile: user.mobile });
+    const isSent = await sendMobileOTP(user.mobile, otp);
+
+    if (isSent) {
+      otpStore[aadhaar] = otp;
+      return res.json({ message: 'OTP sent to Aadhaar linked mobile', mobile: user.mobile });
+    } else {
+      return res.status(500).json({ message: 'Failed to send Aadhaar OTP via MiniMoth' });
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to send Aadhaar OTP' });
@@ -314,33 +312,30 @@ const recoverPortalAccess = async (req, res) => {
     return res.status(400).json({ message: 'Recovery is available only for seller and delivery portals' });
   }
 
-  if (!cleanEmail) {
-    return res.status(400).json({ message: 'Company email is required' });
-  }
-
   try {
-    const target =
-      loginAs === 'seller'
-        ? await Seller.findOne({ companyEmail: cleanEmail })
-        : await DeliveryBoy.findOne({ companyEmail: cleanEmail });
+    const target = loginAs === 'seller' 
+      ? await Seller.findOne({ companyEmail: cleanEmail }) 
+      : await DeliveryBoy.findOne({ companyEmail: cleanEmail });
 
-    if (!target) {
-      return res.status(404).json({ message: 'No account is registered with this company email' });
-    }
+    if (!target) return res.status(404).json({ message: 'No account registered with this email' });
 
     const targetPhone = loginAs === 'seller' ? target.sellerContact : target.phoneNo;
     const targetLoginId = loginAs === 'seller' ? target.sellerId : target.deliveryBoyId;
 
     const otp = generateOTP();
-    otpStore[targetPhone] = otp;
-    await sendMobileOTP(targetPhone, otp);
+    const isSent = await sendMobileOTP(targetPhone, otp);
 
-    return res.status(200).json({
-      message: 'Recovery OTP sent to the registered phone number',
-      loginId: targetLoginId,
-      maskedPhone: maskPhone(targetPhone),
-      phoneNo: targetPhone
-    });
+    if (isSent) {
+      otpStore[targetPhone] = otp;
+      return res.status(200).json({
+        message: 'Recovery OTP sent to the registered phone number',
+        loginId: targetLoginId,
+        maskedPhone: maskPhone(targetPhone),
+        phoneNo: targetPhone
+      });
+    } else {
+      return res.status(500).json({ message: 'MiniMoth failed to send recovery OTP' });
+    }
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Failed to start account recovery' });

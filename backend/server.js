@@ -13,26 +13,27 @@ const app = express();
 // FIXED CORS
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://127.0.0.1:3000',
   'https://mern-project-rose-two.vercel.app',
   'https://rentist.co.in',
   'https://www.rentist.co.in',
 ];
 
+// Remove the complex function and use this for now:
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  credentials: true // Enable this if you send cookies or authorization headers
+  origin: true, // This automatically allows whatever origin is calling it
+  credentials: true, // Adjust based on your needs
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+app.use((req, res, next) => {
+  console.log(`Incoming Request: ${req.method} ${req.url}`);
+  next();
+});
 
 // Test routes
 app.get('/', (req, res) => {
