@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeModeProvider } from './context/ThemeModeContext';
 import PageLoader from './components/common/PageLoader';
+import ProtectedManagerRoute from './components/routes/ProtectedManagerRoute';
 import './App.css';
 
 const Register = lazy(() => import('./pages/Register'));
@@ -25,10 +26,10 @@ function App() {
         <Suspense fallback={<PageLoader message="Loading page..." minHeight="100vh" />}>
           <Routes>
             <Route path="/register" element={<Register />} />
-            <Route path="/aadhaar" element={<Aadhaar />} />
-            <Route path="/products" element={<Product />} />
-            <Route path="/sellers" element={<Seller />} />
-            <Route path="/deliveries" element={<DeliveryManager />} />
+            <Route path="/aadhaar" element={<ProtectedManagerRoute><Aadhaar /></ProtectedManagerRoute>} />
+            <Route path="/products" element={<ProtectedManagerRoute><Product /></ProtectedManagerRoute>} />
+            <Route path="/sellers" element={<ProtectedManagerRoute><Seller /></ProtectedManagerRoute>} />
+            <Route path="/deliveries" element={<ProtectedManagerRoute><DeliveryManager /></ProtectedManagerRoute>} />
             <Route path="/manage-hub" element={<ManageHub />} />
             <Route path="/" element={<Login />} />
             <Route path="/login" element={<Login />} />

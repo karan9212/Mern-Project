@@ -14,7 +14,9 @@ const {
   updateUser,
   getAadhaarData,
   upsertAadhaarData,
-  recoverPortalAccess
+  recoverPortalAccess,
+  loginManagerHub,
+  verifyManagerHubSession
 } = require('../controllers/authController');
 const {
   getAllTeams,
@@ -73,6 +75,8 @@ router.post('/verifyMobileOtp', verifyMobileOtp);
 router.post('/sendAadhaarOtp', sendAadhaarOtp);
 router.post('/verifyAadhaarOtp', verifyAadhaarOtp);
 router.post('/recoverPortalAccess', recoverPortalAccess);
+router.post('/manager-hub/login', loginManagerHub);
+router.get('/manager-hub/session', verifyManagerHubSession);
 router.get('/user/:userId', getUserProfile);
 router.post('/updateProfileImage', updateProfileImage);
 router.post('/logoutUser', logoutUser);

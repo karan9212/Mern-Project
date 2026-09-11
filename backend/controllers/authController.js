@@ -3,11 +3,12 @@ const Team = require('../models/Team');
 const Aadhaar = require('../models/Aadhaar');
 const Seller = require('../models/Seller');
 const { DeliveryBoy } = require('../models/DeliveryBoy');
-const sendMobileOTP = require('../utils/sendMobileOTP');
-
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+const jwt = require('jsonwebtoken');
+const { sendMobileOTP, verifyMobileOTP } = require('../utils/sendMobileOTP');
 
 const otpStore = {};
+const verifiedPhoneStore = {};
+const MANAGER_HUB_SCOPE = 'manager_hub';
 
 const withAge = (doc) => {
   if (!doc) return doc;
@@ -58,55 +59,126 @@ const findDeliveryBoyByLogin = async (deliveryBoyId, phoneNo) =>
     phoneNo: String(phoneNo || '').trim()
   });
 
+const getManagerHubSecret = () => process.env.JWT_SECRET || process.env.MANAGER_HUB_PASSWORD || 'manager-hub-secret';
+
+const getManagerHubPassword = () => String(process.env.MANAGER_HUB_PASSWORD || process.env.JWT_SECRET || '').trim();
+
+const markPhoneVerified = (phoneNo) => {
+  verifiedPhoneStore[String(phoneNo || '').trim()] = Date.now() + 10 * 60 * 1000;
+};
+
+const hasVerifiedPhone = (phoneNo) => {
+  const key = String(phoneNo || '').trim();
+  const expiresAt = verifiedPhoneStore[key];
+  if (!expiresAt || expiresAt < Date.now()) {
+    delete verifiedPhoneStore[key];
+    return false;
+  }
+  return true;
+};
+
+const consumeVerifiedPhone = (phoneNo) => {
+  delete verifiedPhoneStore[String(phoneNo || '').trim()];
+};
+
 const sendMobileOtp = async (req, res) => {
-  const { mobile, phoneNo, loginAs = 'user', loginId } = req.body;
+  const { mobile, phoneNo, loginAs = 'user', loginId, purpose = 'login' } = req.body;
   const inputPhoneNo = String(phoneNo || mobile || '').trim();
+  const isLoginOtp = purpose === 'login';
+  const isRegistrationOtp = purpose === 'registration';
 
   try {
     if (!/^\d{10}$/.test(inputPhoneNo)) {
       return res.status(400).json({ message: 'Valid 10-digit mobile number is required' });
     }
 
-    // --- Validation logic for Seller/Delivery remains same ---
-    if (loginAs === 'seller') {
+    if (!['login', 'registration'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
+    }
+
+    if (isLoginOtp && loginAs === 'user') {
+      const activeUser = await User.findOne({ phoneNo: inputPhoneNo, status: { $ne: 'Deleted' } }).sort({ _id: -1 });
+      if (!activeUser) {
+        const deletedUser = await User.findOne({ phoneNo: inputPhoneNo, status: 'Deleted' }).sort({ _id: -1 });
+        if (deletedUser) {
+          return res.status(403).json({ message: 'This account is deleted. Please register again to create a new account.' });
+        }
+        return res.status(400).json({ message: 'User does not exist. Please register first.' });
+      }
+    }
+
+    if (isLoginOtp && loginAs === 'employee') {
+      const employee = await Team.findOne({ phoneNo: inputPhoneNo });
+      if (!employee) return res.status(400).json({ message: 'Employee does not exist' });
+      if (employee.status === 'Deleted') return res.status(403).json({ message: 'This employee account is deleted' });
+    }
+
+    if (isLoginOtp && loginAs === 'seller') {
       if (!loginId) return res.status(400).json({ message: 'Seller ID is required' });
       const seller = await findSellerByLogin(loginId, inputPhoneNo);
       if (!seller) return res.status(400).json({ message: 'Seller ID and phone number do not match' });
       if (seller.sellerStatus === 'deleted') return res.status(403).json({ message: 'This seller account is deleted' });
     }
 
-    if (loginAs === 'delivery') {
+    if (isLoginOtp && loginAs === 'delivery') {
       if (!loginId) return res.status(400).json({ message: 'Delivery ID is required' });
       const deliveryBoy = await findDeliveryBoyByLogin(loginId, inputPhoneNo);
       if (!deliveryBoy) return res.status(400).json({ message: 'Delivery ID and phone number do not match' });
       if (deliveryBoy.status === 'deleted') return res.status(403).json({ message: 'This delivery account is deleted' });
     }
 
-    // --- MiniMoth Integration Start ---
-    const otp = generateOTP();
-    
-    // Call the utility and check for success
-    const isSent = await sendMobileOTP(inputPhoneNo, otp);
+    if (isRegistrationOtp) {
+      const aadhaarUser = await getAadhaarByMobile(inputPhoneNo);
+      if (!aadhaarUser) {
+        return res.status(400).json({ message: 'This mobile number is not linked with Aadhaar' });
+      }
 
-    if (isSent) {
-      otpStore[inputPhoneNo] = otp; // Only store if message actually sent
-      return res.json({ message: 'OTP sent to mobile number' });
-    } else {
-      return res.status(500).json({ message: 'Failed to deliver OTP via MiniMoth. Check balance/API Key.' });
+      const existingActiveOrInactive = await User.findOne({
+        status: { $ne: 'Deleted' },
+        $or: [{ aadhaarNumber: aadhaarUser.aadhaarNumber }, { phoneNo: aadhaarUser.mobile }]
+      });
+      if (existingActiveOrInactive) {
+        return res.status(400).json({ message: 'User with same Aadhaar or phone number already exists' });
+      }
     }
+
+    const delivery = await sendMobileOTP(inputPhoneNo);
+    otpStore[inputPhoneNo] = {
+      provider: 'minimoth',
+      phone: delivery.phone,
+      otpId: delivery.otpId,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    };
+
+    return res.json({ message: 'OTP sent to mobile number' });
   } catch (error) {
     console.error("Controller Error:", error);
-    res.status(500).json({ message: 'Failed to send OTP' });
+    res.status(error.statusCode || 500).json({ message: error.message || 'Failed to send OTP' });
   }
 };
 
-const verifyMobileOtp = (req, res) => {
-  const { mobile, otp } = req.body;
-  if (otpStore[mobile] === otp) {
-    delete otpStore[mobile];
-    res.json({ message: 'Mobile verified' });
-  } else {
-    res.status(400).json({ message: 'Invalid OTP' });
+const verifyMobileOtp = async (req, res) => {
+  const { mobile, phoneNo, otp } = req.body;
+  const inputPhoneNo = String(phoneNo || mobile || '').trim();
+  const pendingOtp = otpStore[inputPhoneNo];
+
+  if (!pendingOtp || pendingOtp.expiresAt < Date.now()) {
+    delete otpStore[inputPhoneNo];
+    return res.status(400).json({ message: 'OTP expired or not requested. Please resend OTP.' });
+  }
+
+  try {
+    const result = await verifyMobileOTP(inputPhoneNo, otp);
+    if (!result.valid) {
+      return res.status(400).json({ message: result.message || 'Invalid OTP' });
+    }
+
+    delete otpStore[inputPhoneNo];
+    markPhoneVerified(inputPhoneNo);
+    return res.json({ message: 'Mobile verified' });
+  } catch (error) {
+    console.error(error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Failed to verify OTP' });
   }
 };
 
@@ -117,28 +189,41 @@ const sendAadhaarOtp = async (req, res) => {
   if (!user) return res.status(400).json({ message: 'Invalid Aadhaar number' });
 
   try {
-    const otp = generateOTP();
-    const isSent = await sendMobileOTP(user.mobile, otp);
-
-    if (isSent) {
-      otpStore[aadhaar] = otp;
-      return res.json({ message: 'OTP sent to Aadhaar linked mobile', mobile: user.mobile });
-    } else {
-      return res.status(500).json({ message: 'Failed to send Aadhaar OTP via MiniMoth' });
-    }
+    const delivery = await sendMobileOTP(user.mobile);
+    otpStore[aadhaar] = {
+      provider: 'minimoth',
+      phone: user.mobile,
+      otpId: delivery.otpId,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    };
+    return res.json({ message: 'OTP sent to Aadhaar linked mobile', mobile: user.mobile });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Failed to send Aadhaar OTP' });
+    res.status(error.statusCode || 500).json({ message: error.message || 'Failed to send Aadhaar OTP' });
   }
 };
 
-const verifyAadhaarOtp = (req, res) => {
+const verifyAadhaarOtp = async (req, res) => {
   const { aadhaar, otp } = req.body;
-  if (otpStore[aadhaar] === otp) {
+  const pendingOtp = otpStore[aadhaar];
+
+  if (!pendingOtp || pendingOtp.expiresAt < Date.now()) {
     delete otpStore[aadhaar];
-    res.json({ message: 'Aadhaar verified' });
-  } else {
-    res.status(400).json({ message: 'Invalid OTP' });
+    return res.status(400).json({ message: 'OTP expired or not requested. Please resend OTP.' });
+  }
+
+  try {
+    const result = await verifyMobileOTP(pendingOtp.phone, otp);
+    if (!result.valid) {
+      return res.status(400).json({ message: result.message || 'Invalid OTP' });
+    }
+
+    delete otpStore[aadhaar];
+    markPhoneVerified(pendingOtp.phone);
+    return res.json({ message: 'Aadhaar verified' });
+  } catch (error) {
+    console.error(error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Failed to verify Aadhaar OTP' });
   }
 };
 
@@ -149,6 +234,10 @@ const registerUser = async (req, res) => {
   try {
     if (!/^\d{10}$/.test(inputPhoneNo)) {
       return res.status(400).json({ message: 'Valid 10-digit mobile number is required' });
+    }
+
+    if (!hasVerifiedPhone(inputPhoneNo)) {
+      return res.status(403).json({ message: 'Please verify mobile OTP before registration' });
     }
 
     const aadhaarUser = await getAadhaarByMobile(inputPhoneNo);
@@ -186,6 +275,7 @@ const registerUser = async (req, res) => {
       profileImage: ''
     });
     await user.save();
+    consumeVerifiedPhone(inputPhoneNo);
 
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
@@ -208,6 +298,10 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: 'Phone number or Aadhaar is required' });
     }
 
+    if (inputPhoneNo && !hasVerifiedPhone(inputPhoneNo)) {
+      return res.status(403).json({ message: 'Please verify mobile OTP before login' });
+    }
+
     if (loginAs === 'seller') {
       const seller = await findSellerByLogin(loginId, inputPhoneNo);
       if (!seller) return res.status(400).json({ message: 'Seller does not exist' });
@@ -215,6 +309,7 @@ const loginUser = async (req, res) => {
         return res.status(403).json({ message: 'This seller account is deleted' });
       }
 
+      consumeVerifiedPhone(inputPhoneNo);
       return res.status(200).json({
         message: 'Seller logged in successfully',
         loginAs,
@@ -233,6 +328,7 @@ const loginUser = async (req, res) => {
         return res.status(403).json({ message: 'This delivery account is deleted' });
       }
 
+      consumeVerifiedPhone(inputPhoneNo);
       return res.status(200).json({
         message: 'Delivery user logged in successfully',
         loginAs,
@@ -289,6 +385,10 @@ const loginUser = async (req, res) => {
       );
     }
 
+    if (inputPhoneNo) {
+      consumeVerifiedPhone(inputPhoneNo);
+    }
+
     res.status(200).json({
       message: 'User logged in successfully',
       loginAs,
@@ -322,23 +422,58 @@ const recoverPortalAccess = async (req, res) => {
     const targetPhone = loginAs === 'seller' ? target.sellerContact : target.phoneNo;
     const targetLoginId = loginAs === 'seller' ? target.sellerId : target.deliveryBoyId;
 
-    const otp = generateOTP();
-    const isSent = await sendMobileOTP(targetPhone, otp);
+    const delivery = await sendMobileOTP(targetPhone);
+    otpStore[targetPhone] = {
+      provider: 'minimoth',
+      phone: delivery.phone,
+      otpId: delivery.otpId,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    };
 
-    if (isSent) {
-      otpStore[targetPhone] = otp;
-      return res.status(200).json({
-        message: 'Recovery OTP sent to the registered phone number',
-        loginId: targetLoginId,
-        maskedPhone: maskPhone(targetPhone),
-        phoneNo: targetPhone
-      });
-    } else {
-      return res.status(500).json({ message: 'MiniMoth failed to send recovery OTP' });
-    }
+    return res.status(200).json({
+      message: 'Recovery OTP sent to the registered phone number',
+      loginId: targetLoginId,
+      maskedPhone: maskPhone(targetPhone),
+      phoneNo: targetPhone
+    });
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ message: 'Failed to start account recovery' });
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Failed to start account recovery' });
+  }
+};
+
+const loginManagerHub = (req, res) => {
+  const { password } = req.body;
+  const configuredPassword = getManagerHubPassword();
+
+  if (!configuredPassword) {
+    return res.status(503).json({ message: 'Manager Hub password is not configured on the server' });
+  }
+
+  if (String(password || '') !== configuredPassword) {
+    return res.status(401).json({ message: 'Invalid Manager Hub password' });
+  }
+
+  const token = jwt.sign({ scope: MANAGER_HUB_SCOPE }, getManagerHubSecret(), { expiresIn: '12h' });
+  return res.status(200).json({ message: 'Manager Hub unlocked', token });
+};
+
+const verifyManagerHubSession = (req, res) => {
+  const token = req.headers['x-manager-hub-token'];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Manager Hub session is required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, getManagerHubSecret());
+    if (decoded.scope !== MANAGER_HUB_SCOPE) {
+      return res.status(403).json({ message: 'Invalid Manager Hub session' });
+    }
+
+    return res.status(200).json({ message: 'Manager Hub session is valid' });
+  } catch (error) {
+    return res.status(401).json({ message: 'Manager Hub session expired. Please unlock again.' });
   }
 };
 
@@ -644,5 +779,7 @@ module.exports = {
   updateUser,
   getAadhaarData,
   upsertAadhaarData,
-  recoverPortalAccess
+  recoverPortalAccess,
+  loginManagerHub,
+  verifyManagerHubSession
 };
