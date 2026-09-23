@@ -4,6 +4,7 @@ import { ThemeModeProvider } from './context/ThemeModeContext';
 import PageLoader from './components/common/PageLoader';
 import ProtectedManagerRoute from './components/routes/ProtectedManagerRoute';
 import './App.css';
+import './css/global.css';
 
 const Register = lazy(() => import('./pages/Register'));
 const Login = lazy(() => import('./pages/Login'));

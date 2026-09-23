@@ -81,11 +81,83 @@ const consumeVerifiedPhone = (phoneNo) => {
   delete verifiedPhoneStore[String(phoneNo || '').trim()];
 };
 
+const sendRegisterMobileOtp = async (req, res) => {
+  const { mobile, purpose = 'registration' } = req.body;
+  const inputPhoneNo = String(mobile || '').trim();
+
+  try {
+    // Validate mobile number
+    if (!/^\d{10}$/.test(inputPhoneNo)) {
+      return res.status(400).json({
+        message: 'Valid 10-digit mobile number is required'
+      });
+    }
+
+    // Validate OTP purpose
+    if (purpose !== 'registration') {
+      return res.status(400).json({
+        message: 'Invalid OTP purpose'
+      });
+    }
+
+    // Check Aadhaar-linked mobile number
+    const aadhaarUser = await getAadhaarByMobile(inputPhoneNo);
+
+    if (!aadhaarUser) {
+      return res.status(400).json({
+        message: 'This mobile number is not linked with Aadhaar'
+      });
+    }
+
+    // Check whether user already exists
+    const existingActiveOrInactive = await User.findOne({
+      status: { $ne: 'Deleted' },
+      $or: [
+        { aadhaarNumber: aadhaarUser.aadhaarNumber },
+        { phoneNo: aadhaarUser.mobile }
+      ]
+    });
+
+    if (existingActiveOrInactive) {
+      return res.status(400).json({
+        message: 'User with same Aadhaar or phone number already exists'
+      });
+    }
+
+    // -----------------------------------------
+    // ACTUALLY SEND OTP
+    // -----------------------------------------
+    const delivery = await sendMobileOTP(inputPhoneNo);
+
+    // Store OTP information for verification
+    otpStore[inputPhoneNo] = {
+      provider: 'minimoth',
+      phone: delivery.phone,
+      otpId: delivery.otpId,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    };
+
+    console.log(
+      `Registration OTP sent successfully to ${inputPhoneNo}`
+    );
+
+    return res.status(200).json({
+      message: 'OTP sent to mobile number'
+    });
+
+  } catch (error) {
+    console.error('Registration OTP Error:', error);
+
+    return res.status(error.statusCode || 500).json({
+      message: error.message || 'Failed to send registration OTP'
+    });
+  }
+};
+
 const sendMobileOtp = async (req, res) => {
   const { mobile, phoneNo, loginAs = 'user', loginId, purpose = 'login' } = req.body;
   const inputPhoneNo = String(phoneNo || mobile || '').trim();
   const isLoginOtp = purpose === 'login';
-  const isRegistrationOtp = purpose === 'registration';
 
   try {
     if (!/^\d{10}$/.test(inputPhoneNo)) {
@@ -125,21 +197,6 @@ const sendMobileOtp = async (req, res) => {
       const deliveryBoy = await findDeliveryBoyByLogin(loginId, inputPhoneNo);
       if (!deliveryBoy) return res.status(400).json({ message: 'Delivery ID and phone number do not match' });
       if (deliveryBoy.status === 'deleted') return res.status(403).json({ message: 'This delivery account is deleted' });
-    }
-
-    if (isRegistrationOtp) {
-      const aadhaarUser = await getAadhaarByMobile(inputPhoneNo);
-      if (!aadhaarUser) {
-        return res.status(400).json({ message: 'This mobile number is not linked with Aadhaar' });
-      }
-
-      const existingActiveOrInactive = await User.findOne({
-        status: { $ne: 'Deleted' },
-        $or: [{ aadhaarNumber: aadhaarUser.aadhaarNumber }, { phoneNo: aadhaarUser.mobile }]
-      });
-      if (existingActiveOrInactive) {
-        return res.status(400).json({ message: 'User with same Aadhaar or phone number already exists' });
-      }
     }
 
     const delivery = await sendMobileOTP(inputPhoneNo);
@@ -413,8 +470,8 @@ const recoverPortalAccess = async (req, res) => {
   }
 
   try {
-    const target = loginAs === 'seller' 
-      ? await Seller.findOne({ companyEmail: cleanEmail }) 
+    const target = loginAs === 'seller'
+      ? await Seller.findOne({ companyEmail: cleanEmail })
       : await DeliveryBoy.findOne({ companyEmail: cleanEmail });
 
     if (!target) return res.status(404).json({ message: 'No account registered with this email' });
@@ -765,6 +822,7 @@ const upsertAadhaarData = async (req, res) => {
 };
 
 module.exports = {
+  sendRegisterMobileOtp,
   sendMobileOtp,
   verifyMobileOtp,
   sendAadhaarOtp,

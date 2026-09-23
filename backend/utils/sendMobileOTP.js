@@ -27,6 +27,45 @@ const parseMiniMothResponse = async (response) => {
   }
 };
 
+const sendRegisterMobileOtp = async (mobile) => {
+  const apiKey = getMiniMothApiKey();
+  const phone = normalizeMiniMothPhone(mobile);
+
+  if (!apiKey) {
+    const error = new Error('MINIMOTH_API_KEY is not configured on the server');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  if (!phone) {
+    const error = new Error('MiniMoth accepts only valid Indian mobile numbers');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const response = await fetch(`${MINIMOTH_BASE_URL}/otp/send`, {
+    method: 'POST',
+    headers: {
+      'X-Api-Key': apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ phone })
+  });
+
+  const payload = await parseMiniMothResponse(response);
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || payload?.error || payload?.message || 'MiniMoth failed to send OTP');
+    error.statusCode = response.status || 500;
+    throw error;
+  }
+
+  return {
+    success: true,
+    phone,
+    otpId: payload.otp_id || payload.otpId || ''
+  };
+};
+
 const sendMobileOTP = async (mobile) => {
   const apiKey = getMiniMothApiKey();
   const phone = normalizeMiniMothPhone(mobile);
@@ -106,6 +145,7 @@ const verifyMobileOTP = async (mobile, otp) => {
 };
 
 module.exports = {
+  sendRegisterMobileOtp,
   sendMobileOTP,
   verifyMobileOTP,
   normalizeMiniMothPhone

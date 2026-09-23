@@ -1,0 +1,46 @@
+:root {
+    --color-primary: #091020;
+    --color-secondary: #fdb115;
+    --color-primary-light: #0f1a34;
+    --color-primary-dark: #080d1a;
+    --border-color: rgba(113 119 144 / 25%);
+    --inactive-color: rgb(113 119 144 / 78%);
+    --body-font: "Poppins", sans-serif;
+    --hover-menu-bg: rgba(12 15 25 / 30%);
+    --content-title-color: #999ba5;
+    --content-bg: rgb(146 151 179 / 13%);
+    --button-inactive: rgb(249 250 251 / 55%);
+    --dropdown-bg: #21242d;
+    --dropdown-hover: rgb(42 46 60);
+    --popup-bg: rgb(22 25 37);
+    --search-bg: #14162b;
+    --overlay-bg: rgba(36, 39, 59, 0.3);
+    --scrollbar-bg: rgb(1 2 3 / 40%);
+}
+
+.light-mode {
+    --theme-bg-color: rgb(255 255 255 / 31%);
+    --theme-color: #091020;
+    --inactive-color: #182748;
+    --button-inactive: #091020;
+    --search-bg: rgb(255 255 255 / 31%);
+    --dropdown-bg: #f7f7f7;
+    --overlay-bg: rgb(255 255 255 / 30%);
+    --dropdown-hover: rgb(236 236 236);
+    --border-color: rgb(255 255 255 / 35%);
+    --popup-bg: rgb(255 255 255);
+    --hover-menu-bg: rgba(255 255 255 / 35%);
+    --scrollbar-bg: rgb(255 253 253 / 57%);
+    --content-title-color: --theme-color;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+button {
+    width: fit-content !important;
+    height: fit-content !important;
+    padding: 5px 25px !important;
+}

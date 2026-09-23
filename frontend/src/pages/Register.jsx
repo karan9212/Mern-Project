@@ -40,7 +40,7 @@ function Register() {
     showToast('Registration form has been reset.', 'info');
   };
 
-  const sendMobileOtp = async () => {
+  const registerMobileOtp = async () => {
     const mobile = formData.mobile.trim();
     if (!/^\d{10}$/.test(mobile)) {
       showToast('Please enter a valid 10-digit mobile number.');
@@ -48,7 +48,7 @@ function Register() {
     }
 
     try {
-      await API.post('/sendMobileOtp', { mobile });
+      await API.post('/sendRegisterMobileOtp', { mobile });
       setMobileOtpSent(true);
       showToast('OTP sent to mobile.', 'success');
     } catch (err) {
@@ -147,7 +147,7 @@ function Register() {
                 />
 
                 {!mobileOtpSent && !mobileVerified && (
-                  <Button type="button" variant="contained" onClick={sendMobileOtp}>
+                  <Button type="button" variant="contained" onClick={registerMobileOtp}>
                     Send OTP
                   </Button>
                 )}
@@ -166,7 +166,7 @@ function Register() {
                       <Button type="button" variant="contained" onClick={verifyMobileOtp} fullWidth>
                         Verify Mobile OTP
                       </Button>
-                      <Button type="button" variant="outlined" onClick={sendMobileOtp} fullWidth>
+                      <Button type="button" variant="outlined" onClick={registerMobileOtp} fullWidth>
                         Resend OTP
                       </Button>
                     </Stack>

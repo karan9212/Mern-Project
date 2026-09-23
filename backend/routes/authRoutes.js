@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   registerUser,
+  sendRegisterMobileOtp,
   sendMobileOtp,
   verifyMobileOtp,
   sendAadhaarOtp,
@@ -70,6 +71,7 @@ const router = express.Router();
 // Only use what is defined in authController.js
 router.post('/loginUser', loginUser);
 router.post('/registerUser', registerUser);
+router.post('/sendRegisterMobileOtp', sendRegisterMobileOtp);
 router.post('/sendMobileOtp', sendMobileOtp);
 router.post('/verifyMobileOtp', verifyMobileOtp);
 router.post('/sendAadhaarOtp', sendAadhaarOtp);

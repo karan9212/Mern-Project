@@ -33,9 +33,11 @@ function Login() {
   });
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [recoveryEmail, setRecoveryEmail] = useState('');
-
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
   const [mobileVerified, setMobileVerified] = useState(false);
+  const [mobileOtpText, setMobileOtpText] = useState('Send OTP');
+  const [mobileVerifiedText, setMobileVerifiedText] = useState('Verify Mobile');
+  const [mobileResendText, setMobileResendText] = useState('Resend OTP');
   const { toast, showToast, closeToast } = useToast('warning');
   const mobileRegex = /^\d{10}$/;
 
@@ -70,8 +72,10 @@ function Login() {
   };
 
   // ------------------- Mobile OTP --------------------
-  const sendMobileOtp = async () => {
+  const sendMobileOtp = async (e) => {
     try {
+      setMobileOtpText('Sending OTP...');
+      setMobileResendText('Sending OTP...');
       await API.post('/sendMobileOtp', {
         mobile: formData.mobile,
         loginAs: formData.loginAs,
@@ -79,13 +83,19 @@ function Login() {
       });
       setMobileOtpSent(true);
       showToast('OTP sent to mobile.', 'success');
+      setMobileOtpText('Send OTP');
+      setMobileResendText('Resend OTP');
+      e.preventDefault();
     } catch (err) {
       showToast(err.response?.data?.message || 'Failed to send mobile OTP.', 'error');
+      setMobileOtpText('Send OTP');
+      setMobileResendText('Resend OTP');
     }
   };
 
   const verifyMobileOtp = async () => {
     try {
+      setMobileVerifiedText('Verifying OTP...');
       await API.post('/verifyMobileOtp', {
         mobile: formData.mobile,
         otp: formData.mobileOtp
@@ -94,6 +104,7 @@ function Login() {
       showToast('Mobile verified.', 'success');
     } catch (err) {
       showToast(err.response?.data?.message || 'Invalid OTP for mobile.', 'error');
+      setMobileVerifiedText('Verify Mobile');
     }
   };
 
@@ -249,42 +260,47 @@ function Login() {
                   fullWidth
                 />
 
-                {!mobileOtpSent && !mobileVerified && (
-                  <Button type="button" variant="contained" onClick={sendMobileOtp}>
-                    Send OTP
-                  </Button>
-                )}
-
-                {mobileOtpSent && !mobileVerified && (
-                  <>
-                    <TextField
-                      name="mobileOtp"
-                      label="Enter Mobile OTP"
-                      onChange={handleChange}
-                      value={formData.mobileOtp}
-                      required
-                      fullWidth
-                    />
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                      <Button type="button" variant="contained" onClick={verifyMobileOtp} fullWidth>
-                        Verify Mobile OTP
+                <Stack direction={{ xs: 'row', sm: 'row' }} sx={{justifyContent: "space-between", alignItems: "start"}}>
+                  <div>
+                    <Button type="button" variant="outlined" color="warning" onClick={handleResetLogin}>
+                      Reset
+                    </Button>
+                  </div>
+                  <div>
+                    {!mobileOtpSent && !mobileVerified && (
+                      <Button type="button" variant="contained" onClick={sendMobileOtp}>
+                        {mobileOtpText}
                       </Button>
-                      <Button type="button" variant="outlined" onClick={sendMobileOtp} fullWidth>
-                        Resend OTP
+                    )}
+
+                    {mobileOtpSent && !mobileVerified && (
+                      <>
+                        <TextField
+                          name="mobileOtp"
+                          label="Enter Mobile OTP"
+                          onChange={handleChange}
+                          value={formData.mobileOtp}
+                          required
+                          fullWidth
+                        />
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 1 }}>
+                          <Button type="button" variant="contained" onClick={verifyMobileOtp} fullWidth disabled={!verifyMobileOtp}>
+                            {mobileVerifiedText}
+                          </Button>
+                          <Button type="button" variant="outlined" onClick={sendMobileOtp} fullWidth disabled={!sendMobileOtp}>
+                            {mobileResendText}
+                          </Button>
+                        </Stack>
+                      </>
+                    )}
+
+                    {mobileVerified && (
+                      <Button type="submit" variant="contained" size="large" disabled={!handleLogin}>
+                        {!handleLogin ? 'Logging in...' : 'Login'}
                       </Button>
-                    </Stack>
-                  </>
-                )}
-
-                {mobileVerified && (
-                  <Button type="submit" variant="contained" size="large">
-                    Login
-                  </Button>
-                )}
-
-                <Button type="button" variant="outlined" color="warning" onClick={handleResetLogin}>
-                  Reset
-                </Button>
+                    )}
+                  </div>
+                </Stack>
 
                 {isPortalLogin ? (
                   <Button type="button" variant="text" onClick={() => setForgotPasswordOpen(true)} sx={{ alignSelf: 'flex-start', px: 0 }}>
